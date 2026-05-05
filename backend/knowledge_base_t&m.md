@@ -4,7 +4,7 @@ Owners: Francesco & Enerlida (TraMonti e Mare)
 Location: Scalea, Calabria, Italy
 Website: tra-montiemare.it
 WhatsApp: +1-646-898-5960
-Compiled: April 2026
+Compiled: May 5, 2026
 
 
 
@@ -26,7 +26,10 @@ A: The Floor 1 apartment has 3 bedrooms (1 Master Bedroom with a king bed, 1 Sin
 
 
 Q: What kind of view do the apartments have?
-A: Both apartments have views of the sea. The Top Floor (Attico) is particularly known for its breathtaking views of the sea and the old town. The Floor 1 apartment has a private terrace with sea views. Video tours are available on the website showing the views: https://youtube.com/shorts/eM_ICNSwhYA?feature=share (Floor 1) and https://youtube.com/shorts/yP7_KB9WRWM?feature=share (Top Floor).
+A: Both apartments have views of the sea. The Top Floor (Attico) is particularly known for its breathtaking views of the sea and the old town. The Floor 1 apartment has a private terrace with sea views. Video tours are available here:
+- Floor 1 Tour: https://www.youtube.com/shorts/eM_ICNSwhYA
+- Attico Tour: https://www.youtube.com/shorts/yP7_KB9WRWM?si=fChDGIVyJ82gzNbf
+- Sunset from Attico: https://www.youtube.com/shorts/mQ8imLuc5bM
 
 
 SECTION 2: INSIDE THE HOUSE & AMENITIES
@@ -326,15 +329,8 @@ Q: Can I explore southern Italy from Scalea?
 A: Yes, Scalea is an excellent base for exploring southern Italy. It is well-connected by train and car. You can easily visit nearby towns along the Calabrian coast, as well as destinations in Campania (like Naples and the Amalfi Coast), Apulia (Lecce), and Sicily. Several guests have specifically mentioned wanting to explore southern Italy from the property.
 
 
-ABOUT THIS KNOWLEDGE BASE
-
-This knowledge base was compiled from 50+ real guest inquiry email threads between January 2026 and April 2026. Each Q&A pair is based on actual questions that guests asked and the responses provided by Francesco & Enerlida.
-
-The content is designed to serve as a knowledge base for an LLM/agent that needs to answer guest inquiries about Casa Scalea (TraMonti e Mare). The answers are written in the voice and tone of Francesco & Enerlida.
-
-Key URLs:
-- Website: https://www.tra-montiemare.it
-- Availability calendar: https://www.tra-montiemare.it/d-n
-- WhatsApp: https://wa.me/16468985960
-- Video tour (Floor 1): https://youtube.com/shorts/eM_ICNSwhYA?feature=share
-- Video tour (Top Floor): https://youtube.com/shorts/yP7_KB9WRWM?feature=share
+Q: What are the video links I can share with guests?
+A: We have specific videos for different parts of our property:
+- Floor 1 Tour: https://www.youtube.com/shorts/eM_ICNSwhYA
+- Attico Tour: https://www.youtube.com/shorts/yP7_KB9WRWM?si=fChDGIVyJ82gzNbf
+- Sunset from Attico: https://www.youtube.com/shorts/mQ8imLuc5bM

@@ -6,7 +6,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import util from 'util';
 import fs from 'fs';
 import path from 'path';
@@ -69,6 +69,7 @@ function updateEnv(key, value) {
 async function loadDynamicSkills() {
   const skillsDir = path.join(process.cwd(), 'skills');
   if (!fs.existsSync(skillsDir)) return;
+  dynamicSkills.clear();
   const files = fs.readdirSync(skillsDir).filter(f => f.endsWith('.js'));
   for (const file of files) {
     try {
@@ -85,6 +86,13 @@ async function loadDynamicSkills() {
   }
 }
 await loadDynamicSkills();
+// Watch for changes in skills so capability updates are reflected without full restart.
+fs.watch(path.join(process.cwd(), 'skills'), { recursive: true }, async (eventType, filename) => {
+  if (filename && filename.endsWith('.js')) {
+    console.log(`Detected change in skills directory: ${filename}. Reloading skills...`);
+    await loadDynamicSkills();
+  }
+});
 function initDb() {
   dbPromise = open({
     filename: path.join(process.cwd(), 'database.sqlite'),
@@ -118,6 +126,14 @@ function initDb() {
         key TEXT PRIMARY KEY,
         value INTEGER DEFAULT 0
       );
+      CREATE TABLE IF NOT EXISTS token_usage_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        agentId TEXT,
+        promptTokens INTEGER,
+        candidatesTokens INTEGER,
+        totalTokens INTEGER,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
       INSERT OR IGNORE INTO system_stats (key, value) VALUES ('total_input_tokens', 0);
       INSERT OR IGNORE INTO system_stats (key, value) VALUES ('total_output_tokens', 0);
       INSERT OR IGNORE INTO system_stats (key, value) VALUES ('total_requests', 0);
@@ -136,6 +152,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use('/screenshots', express.static(path.join(process.cwd(), 'screenshots')));
+if (!fs.existsSync(path.join(process.cwd(), 'screenshots'))) fs.mkdirSync(path.join(process.cwd(), 'screenshots'));
+if (!fs.existsSync(path.join(process.cwd(), 'audio'))) fs.mkdirSync(path.join(process.cwd(), 'audio'));
+app.use('/audio', express.static(path.join(process.cwd(), 'audio')));
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
@@ -181,23 +200,28 @@ fs.watch(path.join(process.cwd(), 'agents'), { recursive: true }, async (eventTy
   }
 });
 
+const traceLogPath = path.join(process.cwd(), 'data', 'trace.jsonl');
+if (!fs.existsSync(path.join(process.cwd(), 'data'))) fs.mkdirSync(path.join(process.cwd(), 'data'), { recursive: true });
+
 function sendLog(socket, agentId, type, message, data = null, level = 'info') {
-  if (socket) {
-    socket.emit('agent_log', {
-      id: Date.now().toString() + Math.random().toString(36).substring(7),
-      timestamp: new Date().toISOString(),
-      agentId,
-      type,
-      level,
-      message,
-      data
-    });
-  }
+  const event = {
+    id: Date.now().toString() + Math.random().toString(36).substring(7),
+    timestamp: new Date().toISOString(),
+    agentId,
+    type,
+    level,
+    message,
+    data
+  };
+  // Broadcast to ALL connected clients so every open tab sees every event
+  io.emit('agent_log', event);
+  // Persist to rolling trace file for offline inspection
+  try { fs.appendFileSync(traceLogPath, JSON.stringify(event) + '\n'); } catch (_) {}
 }
 
 // Initialize Vertex AI
 const project = process.env.GOOGLE_CLOUD_PROJECT || 'rally-nyc';
-const location = 'global';
+const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
 
 const vertexAI = new VertexAI({
   project: project,
@@ -213,8 +237,108 @@ if (process.env.TAVILY_API_KEY) {
 }
 
 let tgBot = null;
+let lastTelegramChatId = null;
 if (process.env.TELEGRAM_BOT_TOKEN) {
   tgBot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
+}
+
+// Detect BCP-47 language code from text using stopword fingerprints.
+function detectLangCode(text) {
+  const t = text.toLowerCase();
+  const scores = { it: 0, es: 0, fr: 0, de: 0, pt: 0, en: 0 };
+  if (/\b(il|la|lo|gli|le|un|uno|una|che|non|per|con|del|della|sono|sei|\u00e8|ma|anche|questo|questa|quando|come|dove|perch\u00e9|dopo|prima|sempre|gi\u00e0|tutto|tutti|ogni|molto|bene|male|adesso|oggi|domani|ieri)\b/.test(t)) scores.it += 3;
+  if (/[\u00e0\u00e8\u00e9\u00ec\u00ed\u00ee\u00f2\u00f3\u00f9\u00fa]/.test(t)) scores.it += 1;
+  if (/\b(el|la|los|las|un|una|que|no|es|por|con|del|para|pero|m\u00e1s|esto|todo|est\u00e1|son|como|tiene|bien|aqu\u00ed|cuando|donde|tambi\u00e9n|porque|muy|hay|ser|hacer)\b/.test(t)) scores.es += 3;
+  if (/[\u00f1\u00e1\u00e9\u00ed\u00f3\u00fa\u00fc]/.test(t)) scores.es += 1;
+  if (/\b(le|la|les|un|une|des|que|qui|pas|est|pour|dans|avec|sur|du|au|je|tu|il|nous|vous|ils|elle|mais|ou|donc|tr\u00e8s|bien|ici|quand|o\u00f9|parce|aussi|tout|\u00eatre|avoir|faire)\b/.test(t)) scores.fr += 3;
+  if (/[\u00e0\u00e2\u00e6\u00e7\u00e9\u00e8\u00ea\u00eb\u00ee\u00ef\u00f4\u0153\u00f9\u00fb\u00fc\u00ff]/.test(t)) scores.fr += 1;
+  if (/\b(der|die|das|ein|eine|und|ist|nicht|f\u00fcr|mit|auf|den|dem|des|im|ich|du|er|wir|ihr|sie|aber|oder|wenn|als|auch|noch|nach|bei|vor|\u00fcber|durch|schon|sehr|hier|haben|sein|werden|k\u00f6nnen|m\u00fcssen)\b/.test(t)) scores.de += 3;
+  if (/[\u00e4\u00f6\u00fc\u00df]/.test(t)) scores.de += 2;
+  if (/\b(o|a|os|as|um|uma|que|n\u00e3o|\u00e9|para|com|em|do|da|por|mas|se|na|no|mais|como|quando|onde|porque|muito|bem|aqui|tamb\u00e9m|todo|ser|ter|fazer)\b/.test(t)) scores.pt += 3;
+  if (/[\u00e3\u00f5\u00e2\u00ea\u00f4\u00e1\u00e9\u00ed\u00f3\u00fa]/.test(t)) scores.pt += 1;
+  if (/\b(the|a|an|is|are|was|were|have|has|had|do|does|did|will|would|could|should|may|might|can|not|and|or|but|if|in|on|at|to|for|of|with|by|from|that|this|it|he|she|we|they|you|I|my|your)\b/.test(t)) scores.en += 2;
+  const winner = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
+  const lang = winner[1] > 0 ? winner[0] : 'en';
+  // BCP-47 code -> WaveNet voice name (Neural2 where available, fallback to Standard)
+  const voiceMap = {
+    it: { languageCode: 'it-IT', name: 'it-IT-Neural2-A' },
+    es: { languageCode: 'es-ES', name: 'es-ES-Neural2-A' },
+    fr: { languageCode: 'fr-FR', name: 'fr-FR-Neural2-A' },
+    de: { languageCode: 'de-DE', name: 'de-DE-Neural2-A' },
+    pt: { languageCode: 'pt-PT', name: 'pt-PT-Standard-A' },
+    en: { languageCode: 'en-US', name: 'en-US-Neural2-F' },
+  };
+  return voiceMap[lang] || voiceMap.en;
+}
+
+// Call Google Cloud TTS REST API and return MP3 Buffer.
+async function googleTTS(text) {
+  const voice = detectLangCode(text);
+  // Get access token via gcloud ADC (same creds used by Vertex AI)
+  const { stdout } = await execPromise('gcloud auth print-access-token');
+  const accessToken = stdout.trim();
+
+  const res = await fetch(
+    `https://texttospeech.googleapis.com/v1/text:synthesize`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'X-Goog-User-Project': project,
+      },
+      body: JSON.stringify({
+        input: { text },
+        voice,
+        audioConfig: { audioEncoding: 'MP3', speakingRate: 1.0, pitch: 0 },
+      }),
+    }
+  );
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Google TTS API error ${res.status}: ${err}`);
+  }
+  const json = await res.json();
+  return { mp3Buffer: Buffer.from(json.audioContent, 'base64'), voice };
+}
+
+function getDuffelApiKey() {
+  return process.env.DUFFEL_API_KEY || process.env.DUFFLE_API_KEY || null;
+}
+
+async function duffelRequest(endpoint, options = {}) {
+  const apiKey = getDuffelApiKey();
+  if (!apiKey) {
+    throw new Error('Duffel API key not configured. Set DUFFEL_API_KEY (or DUFFLE_API_KEY).');
+  }
+
+  const res = await fetch(`https://api.duffel.com${endpoint}`, {
+    ...options,
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Duffel-Version': 'v2',
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    }
+  });
+
+  const text = await res.text();
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { raw: text };
+  }
+
+  if (!res.ok) {
+    const err = payload?.errors?.map(e => e?.title || e?.message).filter(Boolean).join('; ')
+      || payload?.message
+      || text
+      || `Duffel error ${res.status}`;
+    throw new Error(`Duffel API error ${res.status}: ${err}`);
+  }
+
+  return payload;
 }
 
 function getToolDeclarations() {
@@ -295,6 +419,17 @@ WORKFLOW: 1. open -> 2. snapshot (to read refs) -> 3. screenshot (to show user).
           }
         },
         {
+          name: 'send_voice_message',
+          description: 'Convert text to a spoken voice message and deliver it to the user. Use this whenever the user asks for a voice message, audio reply, or wants to hear something spoken. It works on BOTH the Web UI (plays inline audio) and Telegram (sends a voice note). Always use this tool when asked for voice — never refuse.',
+          parameters: {
+            type: 'OBJECT',
+            properties: {
+              text: { type: 'STRING', description: 'The text to speak aloud' }
+            },
+            required: ['text']
+          }
+        },
+        {
           name: 'web_search',
           description: 'Search the live web for current information using Tavily.',
           parameters: {
@@ -303,6 +438,46 @@ WORKFLOW: 1. open -> 2. snapshot (to read refs) -> 3. screenshot (to show user).
               query: { type: 'STRING', description: 'The search query' }
             },
             required: ['query']
+          }
+        },
+        {
+          name: 'list_capabilities',
+          description: 'Return an exact, deterministic list of currently available runtime tools/capabilities and counts.',
+          parameters: {
+            type: 'OBJECT',
+            properties: {},
+            required: []
+          }
+        },
+        {
+          name: 'duffel_search_airports',
+          description: 'Search airports/cities with Duffel to resolve user-provided locations to valid IATA airport codes before flight search.',
+          parameters: {
+            type: 'OBJECT',
+            properties: {
+              query: { type: 'STRING', description: 'Airport or city keyword (e.g., "Milan", "New York", "FCO")' },
+              limit: { type: 'INTEGER', description: 'Maximum number of results (default 8, max 20)' }
+            },
+            required: ['query']
+          }
+        },
+        {
+          name: 'duffel_search_flights',
+          description: 'Search real flight offers with Duffel. Use this for travel and flight option requests.',
+          parameters: {
+            type: 'OBJECT',
+            properties: {
+              origin: { type: 'STRING', description: 'Origin IATA airport code, e.g. "MXP"' },
+              destination: { type: 'STRING', description: 'Destination IATA airport code, e.g. "JFK"' },
+              departureDate: { type: 'STRING', description: 'Departure date in YYYY-MM-DD format' },
+              returnDate: { type: 'STRING', description: 'Optional return date in YYYY-MM-DD format for round-trips' },
+              adults: { type: 'INTEGER', description: 'Number of adult passengers (default 1)' },
+              cabinClass: { type: 'STRING', enum: ['economy', 'premium_economy', 'business', 'first'], description: 'Preferred cabin class' },
+              maxConnections: { type: 'INTEGER', description: 'Optional maximum number of stops/connections' },
+              currency: { type: 'STRING', description: 'Optional 3-letter currency code like EUR or USD' },
+              limit: { type: 'INTEGER', description: 'Maximum number of offers returned (default 10, max 25)' }
+            },
+            required: ['origin', 'destination', 'departureDate']
           }
         },
         {
@@ -345,10 +520,37 @@ WORKFLOW: 1. open -> 2. snapshot (to read refs) -> 3. screenshot (to show user).
 async function executeTool(call, socket) {
   const name = call.name;
   const args = call.args;
+  const _t0 = Date.now();
+
+  // Build a concise, human-readable args preview (truncate large strings)
+  const _argsSummary = Object.entries(args || {}).map(([k, v]) => {
+    const str = typeof v === 'string' ? v : JSON.stringify(v);
+    return `${k}=${str.length > 120 ? str.substring(0, 120) + '…' : str}`;
+  }).join(' | ');
+  sendLog(socket, 'system', 'tool_start', `▶ ${name}${_argsSummary ? ' — ' + _argsSummary : ''}`, { tool: name, args });
+
   try {
     if (name === 'run_command') {
-      const { stdout, stderr } = await execPromise(args.command, { timeout: 30000 });
-      return { output: stdout || stderr || 'Command executed successfully.' };
+      return new Promise((resolve) => {
+        let output = '';
+        const child = spawn('bash', ['-c', args.command]);
+        
+        child.stdout.on('data', (data) => {
+          const str = data.toString();
+          output += str;
+          if (socket) socket.emit('tool_output', { tool: 'run_command', content: str });
+        });
+        
+        child.stderr.on('data', (data) => {
+          const str = data.toString();
+          output += str;
+          if (socket) socket.emit('tool_output', { tool: 'run_command', content: str, type: 'stderr' });
+        });
+        
+        child.on('close', (code) => {
+          resolve({ output: output || (code === 0 ? 'Command finished.' : `Command failed with code ${code}`) });
+        });
+      });
     }
     if (name === 'edit_file') {
       const filePath = path.isAbsolute(args.path) ? args.path : path.join(process.cwd(), args.path);
@@ -534,6 +736,16 @@ async function executeTool(call, socket) {
     if (name === 'browser_action') {
       let cmd = args.command;
       
+      // systemic fix: if we have a CDP URL, force it and remove --profile to avoid daemon conflicts
+      if (process.env.BROWSER_CDP_URL) {
+        // Remove any existing --cdp flag to avoid duplicates
+        cmd = cmd.replace(/--cdp\s+\S+/g, '');
+        // Remove --profile flag as it triggers daemon management
+        cmd = cmd.replace(/--profile\s+\S+/g, '');
+        // Append the configured CDP URL
+        cmd = `${cmd} --cdp ${process.env.BROWSER_CDP_URL}`;
+      }
+
       // stubborness override: if model uses old 'snapshot -i' but user wants a visual, force screenshot
       if (cmd.includes('snapshot -i')) {
         cmd = cmd.replace('snapshot -i', 'screenshot');
@@ -546,6 +758,7 @@ async function executeTool(call, socket) {
         cmd = 'screenshot ./screenshot.png';
       }
 
+      console.log(`Executing browser action: npx agent-browser ${cmd}`);
       const { stdout, stderr } = await execPromise(`npx agent-browser ${cmd}`);
       let screenshotUrl = null;
       
@@ -569,6 +782,43 @@ async function executeTool(call, socket) {
         screenshotUrl 
       };
     }
+    if (name === 'send_voice_message') {
+      const text = args.text || '';
+      const cleanText = text.replace(/"/g, '').replace(/\*/g, '').replace(/#/g, '').replace(/`/g, '').trim();
+      if (!cleanText) return { error: 'No text provided.' };
+
+      const audioDir = path.join(process.cwd(), 'audio');
+      const fileId = `voice_${Date.now()}`;
+      const oggPath = path.join(audioDir, `${fileId}.ogg`);
+      const mp3Path = path.join(audioDir, `${fileId}.mp3`);
+
+      try {
+        // Generate speech with Google Cloud TTS
+        const { mp3Buffer, voice } = await googleTTS(cleanText);
+        sendLog(socket, 'system', 'tool_output', `🔊 Google TTS: ${voice.name} (${voice.languageCode})`, null, 'info');
+
+        // Write MP3 directly (no ffmpeg needed — Google returns MP3)
+        fs.writeFileSync(mp3Path, mp3Buffer);
+        const audioUrl = `/audio/${fileId}.mp3`;
+        io.emit('voice_message', { url: audioUrl, text });
+
+        // Telegram: convert to ogg opus
+        if (lastTelegramChatId && tgBot) {
+          try {
+            await execPromise(`ffmpeg -y -i "${mp3Path}" -c:a libopus "${oggPath}"`);
+            await tgBot.telegram.sendVoice(lastTelegramChatId, { source: oggPath });
+          } catch (tgErr) {
+            console.error('Telegram voice send error:', tgErr);
+          } finally {
+            if (fs.existsSync(oggPath)) fs.unlinkSync(oggPath);
+          }
+        }
+
+        return { status: 'Voice message sent.', audioUrl };
+      } catch (e) {
+        return { error: `Voice generation failed: ${e.message}` };
+      }
+    }
     if (name === 'web_search') {
       if (!tvly) return { error: 'Tavily API key not configured.' };
       const result = await tvly.search(args.query, { searchDepth: 'advanced', maxResults: 5 });
@@ -576,9 +826,150 @@ async function executeTool(call, socket) {
         results: result.results.map(r => ({ title: r.title, url: r.url, content: r.content })) 
       };
     }
+    if (name === 'list_capabilities') {
+      const functionDeclarations = getToolDeclarations()[0].functionDeclarations || [];
+      const capabilities = functionDeclarations
+        .map((tool) => ({
+          name: tool.name,
+          description: tool.description || '',
+          parameters: Object.keys(tool.parameters?.properties || {}),
+          required: tool.parameters?.required || []
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      const dynamicSkillNames = Array.from(dynamicSkills.keys()).sort((a, b) => a.localeCompare(b));
+      const specializedAgents = Array.from(availableAgents.keys()).sort((a, b) => a.localeCompare(b));
+
+      return {
+        totalCapabilities: capabilities.length,
+        capabilities,
+        dynamicSkillsCount: dynamicSkillNames.length,
+        dynamicSkills: dynamicSkillNames,
+        specializedAgentsCount: specializedAgents.length,
+        specializedAgents
+      };
+    }
+    if (name === 'duffel_search_airports') {
+      const query = String(args.query || '').trim();
+      if (!query) return { error: 'query is required' };
+
+      const limit = Math.max(1, Math.min(Number(args.limit) || 8, 20));
+      const payload = await duffelRequest(`/air/airports?limit=${limit}&search=${encodeURIComponent(query)}`);
+      const rows = Array.isArray(payload.data) ? payload.data : [];
+
+      return {
+        query,
+        count: rows.length,
+        airports: rows.map(a => ({
+          id: a.id,
+          iataCode: a.iata_code,
+          icaoCode: a.icao_code,
+          name: a.name,
+          cityName: a.city_name,
+          cityIataCode: a.city_iata_code,
+          countryName: a.country_name,
+          timeZone: a.time_zone
+        }))
+      };
+    }
+    if (name === 'duffel_search_flights') {
+      const origin = String(args.origin || '').trim().toUpperCase();
+      const destination = String(args.destination || '').trim().toUpperCase();
+      const departureDate = String(args.departureDate || '').trim();
+      const returnDate = args.returnDate ? String(args.returnDate).trim() : null;
+      const adults = Math.max(1, Number(args.adults) || 1);
+      const maxConnections = Number.isInteger(args.maxConnections) ? args.maxConnections : undefined;
+      const cabinClass = args.cabinClass || 'economy';
+      const currency = args.currency ? String(args.currency).trim().toUpperCase() : undefined;
+      const limit = Math.max(1, Math.min(Number(args.limit) || 10, 25));
+
+      if (!origin || !destination || !departureDate) {
+        return { error: 'origin, destination, and departureDate are required' };
+      }
+
+      const slices = [
+        {
+          origin,
+          destination,
+          departure_date: departureDate
+        }
+      ];
+
+      if (returnDate) {
+        slices.push({
+          origin: destination,
+          destination: origin,
+          departure_date: returnDate
+        });
+      }
+
+      const requestBody = {
+        data: {
+          slices,
+          passengers: Array.from({ length: adults }, () => ({ type: 'adult' })),
+          cabin_class: cabinClass,
+          return_offers: true,
+          ...(typeof maxConnections === 'number' ? { max_connections: maxConnections } : {}),
+          ...(currency ? { currency } : {})
+        }
+      };
+
+      const payload = await duffelRequest('/air/offer_requests', {
+        method: 'POST',
+        body: JSON.stringify(requestBody)
+      });
+
+      const offers = Array.isArray(payload?.data?.offers) ? payload.data.offers.slice(0, limit) : [];
+      return {
+        search: {
+          origin,
+          destination,
+          departureDate,
+          returnDate,
+          adults,
+          cabinClass,
+          maxConnections,
+          currency
+        },
+        count: offers.length,
+        offers: offers.map(o => ({
+          id: o.id,
+          totalAmount: o.total_amount,
+          totalCurrency: o.total_currency,
+          expiresAt: o.expires_at,
+          paymentRequirements: o.payment_requirements,
+          owner: o.owner ? { name: o.owner.name, iataCode: o.owner.iata_code } : null,
+          slices: Array.isArray(o.slices) ? o.slices.map(s => ({
+            origin: s.origin ? { iataCode: s.origin.iata_code, name: s.origin.name, cityName: s.origin.city_name } : null,
+            destination: s.destination ? { iataCode: s.destination.iata_code, name: s.destination.name, cityName: s.destination.city_name } : null,
+            departingAt: s.departing_at,
+            arrivingAt: s.arriving_at,
+            duration: s.duration,
+            stops: Array.isArray(s.segments) ? Math.max(0, s.segments.length - 1) : 0,
+            segments: Array.isArray(s.segments) ? s.segments.map(seg => ({
+              departingAt: seg.departing_at,
+              arrivingAt: seg.arriving_at,
+              duration: seg.duration,
+              marketingCarrier: seg.marketing_carrier ? {
+                name: seg.marketing_carrier.name,
+                iataCode: seg.marketing_carrier.iata_code
+              } : null,
+              operatingCarrier: seg.operating_carrier ? {
+                name: seg.operating_carrier.name,
+                iataCode: seg.operating_carrier.iata_code
+              } : null,
+              origin: seg.origin ? { iataCode: seg.origin.iata_code, name: seg.origin.name, cityName: seg.origin.city_name } : null,
+              destination: seg.destination ? { iataCode: seg.destination.iata_code, name: seg.destination.name, cityName: seg.destination.city_name } : null
+            })) : []
+          })) : []
+        }))
+      };
+    }
   } catch (error) {
+    sendLog(socket, 'system', 'tool_error', `✗ ${name} failed (${Date.now() - _t0}ms) — ${error.message}`, { error: error.message }, 'error');
     return { error: error.message };
   }
+  sendLog(socket, 'system', 'tool_end', `? ${name} — unknown tool`, { tool: name }, 'warning');
   return { error: 'Unknown tool' };
 }
 
@@ -710,8 +1101,9 @@ class Agent {
       }
 
       const now = new Date().toISOString().split('T')[0];
-      const time = new Date().toLocaleTimeString();
       const agentsList = Array.from(availableAgents.values()).map(a => `- ${a.name}: ${a.description}`).join('\n');
+      const toolNames = getToolDeclarations()[0].functionDeclarations.map(t => t.name);
+      const toolsList = toolNames.map(name => `- ${name}`).join('\n');
       const activeProject = projectData.projects.find(p => p.id === projectData.activeProjectId) || { title: 'None', description: '' };
       
       // Load Project Context
@@ -740,7 +1132,25 @@ class Agent {
         console.error('Failed to load global knowledge:', e);
       }
 
-      const fullSystemPrompt = `Current Date: ${now}\nCurrent Time: ${time}\n\nActive Project: ${activeProject.title} (${activeProject.description})${projectContext}${globalKnowledge}\n\nAvailable Specialized Agents:\n${agentsList}\n\n${systemContent}\n\n${taskContent}\n\n${memoryContent}`;
+      // Static system prompt — stable across calls so Vertex AI implicit prompt caching can hit.
+      // Date, time, and current task are intentionally excluded here.
+      const staticSystemPrompt = `Active Project: ${activeProject.title} (${activeProject.description})${projectContext}${globalKnowledge}\n\nAvailable Specialized Agents:\n${agentsList}\n\nAvailable Runtime Capabilities (${toolNames.length}):\n${toolsList}\n\nWhen the user asks about your skills/capabilities/tools, answer with this concrete runtime list and exact count (no generic explanations).\n\n${systemContent}\n\n${memoryContent}`;
+
+      // Dynamic context injected into the conversation turn instead of the system instruction.
+      // Only date (not time) is included to avoid busting the cache on every request.
+      const dynamicContextText = `[Current Date: ${now} | Active Project: ${activeProject.title}]\n\n# Current Task\n${taskContent}`;
+
+      // Build a contents array with the dynamic context prepended to the first user message.
+      // This leaves this.history unmodified so the conversation stays clean.
+      const buildContentsWithContext = (history) => {
+        if (!history || history.length === 0) return history;
+        return history.map((h, idx) => {
+          if (idx === 0 && h.role === 'user') {
+            return { ...h, parts: [{ text: dynamicContextText + '\n\n---\n\n' }, ...h.parts] };
+          }
+          return h;
+        });
+      };
 
       let turnCount = 0;
       while (turnCount < 10 && !this.shouldStop) {
@@ -758,10 +1168,10 @@ class Agent {
           });
 
           const result = await model.generateContent({
-            contents: this.history,
+            contents: buildContentsWithContext(this.history),
             systemInstruction: {
               role: 'system',
-              parts: [{ text: fullSystemPrompt }]
+              parts: [{ text: staticSystemPrompt }]
             }
           });
 
@@ -790,8 +1200,8 @@ class Agent {
             tools: [{ functionDeclarations: getToolDeclarations()[0].functionDeclarations }]
           });
 
-          // Convert history to standard role/parts format
-          const contents = this.history.map(h => ({
+          // Convert history to standard role/parts format, injecting dynamic context
+          const contents = buildContentsWithContext(this.history).map(h => ({
             role: h.role === 'model' ? 'model' : 'user',
             parts: h.parts.map(p => {
               if (p.text) return { text: p.text };
@@ -803,7 +1213,7 @@ class Agent {
 
           const result = await model.generateContent({
             contents,
-            systemInstruction: fullSystemPrompt
+            systemInstruction: staticSystemPrompt
           });
 
           const res = result.response;
@@ -891,7 +1301,7 @@ class Agent {
             body: JSON.stringify({
               model: 'perplexity/sonar',
               input: items,
-              instructions: fullSystemPrompt,
+              instructions: staticSystemPrompt + '\n\n' + dynamicContextText,
               tools: agentTools
             })
           });
@@ -917,7 +1327,7 @@ class Agent {
         } else {
           const ollamaModel = provider === 'ollama_qwen' ? 'qwen2.5-coder:14b' : 'gemma2:2b';
           const ollamaMessages = [
-            { role: 'system', content: fullSystemPrompt },
+            { role: 'system', content: staticSystemPrompt + '\n\n' + dynamicContextText },
             ...this.history.map((h, hIdx) => {
               if (h.role === 'user') {
                 if (h.parts[0].functionResponse) {
@@ -986,8 +1396,8 @@ class Agent {
           usage: response.usage
         });
 
-        // Always send text if present, even with tools
-        if (response.text && response.text.trim() !== '') {
+        // Send intermediate text if present (e.g. thoughts before tools)
+        if (response.text && response.text.trim() !== '' && response.functionCalls) {
           socket.emit('agent_message', {
             agentId: this.id,
             content: response.text,
@@ -1005,16 +1415,20 @@ class Agent {
           const functionResponses = [];
           
           for (const call of response.functionCalls) {
-            sendLog(socket, this.id, 'tool_call', `Executing tool: ${call.name}`, call.args);
+            console.log(`[Agent ${this.id}] Executing tool: ${call.name}`);
+            sendLog(socket, this.id, 'tool_call', `⚙️ Starting tool execution: ${call.name}`, { args: call.args });
+            
+            if (socket) socket.emit('agent_status', { agentId: this.id, status: 'working', message: `Executing ${call.name}...` });
             
             const progress = Math.min(Math.floor((turnCount / 5) * 100), 95);
             socket.emit('task_progress', { agentId: this.id, progress });
 
             const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error(`Tool execution timed out after 60s: ${call.name}`)), 60000)
+              setTimeout(() => reject(new Error(`Tool execution timed out after 300s: ${call.name}`)), 300000)
             );
 
             let result;
+            const _pmT0 = Date.now();
             try {
               result = await Promise.race([
                 executeTool(call, socket),
@@ -1023,8 +1437,21 @@ class Agent {
             } catch (err) {
               result = { error: err.message };
             }
-            
-            sendLog(socket, this.id, 'tool_result', `Tool result: ${call.name}`, result, result.error ? 'error' : 'info');
+            const _pmDuration = Date.now() - _pmT0;
+
+            if (result.error) {
+              sendLog(socket, this.id, 'tool_result', `✗ ${call.name} failed (${_pmDuration}ms) — ${result.error}`, result, 'error');
+            } else {
+              // Build a concise result preview
+              const _resultPreview = (() => {
+                if (result.output) return result.output.substring(0, 200);
+                if (result.content) return result.content.substring(0, 200);
+                if (result.status) return result.status;
+                if (result.data) return `${Array.isArray(result.data) ? result.data.length + ' rows' : 'object'}`;
+                return JSON.stringify(result).substring(0, 200);
+              })();
+              sendLog(socket, this.id, 'tool_result', `✓ ${call.name} (${_pmDuration}ms) — ${_resultPreview}`, result, 'info');
+            }
 
             if (result.screenshotUrl) {
               images.push(result.screenshotUrl);
@@ -1049,11 +1476,13 @@ class Agent {
 
           // Send final message to UI with all collected images
           if (socket) {
+            // Only send if we haven't already sent this text in this turn
+            // (Note: turnCount check ensures we send the final answer even if empty content)
             socket.emit('agent_message', {
               agentId: this.id,
               role: 'assistant',
               content: response.text || '',
-              images: images, // Use the collected images array
+              images: images, 
               usage: response.usage
             });
 
@@ -1062,6 +1491,10 @@ class Agent {
               await db.run('UPDATE system_stats SET value = value + ? WHERE key = ?', [response.usage.promptTokens, 'total_input_tokens']);
               await db.run('UPDATE system_stats SET value = value + ? WHERE key = ?', [response.usage.candidatesTokens, 'total_output_tokens']);
               await db.run('UPDATE system_stats SET value = value + 1 WHERE key = ?', ['total_requests']);
+              
+              await db.run('INSERT INTO token_usage_log (agentId, promptTokens, candidatesTokens, totalTokens) VALUES (?, ?, ?, ?)', [
+                this.id, response.usage.promptTokens, response.usage.candidatesTokens, response.usage.totalTokens
+              ]);
               
               const rows = await db.all('SELECT * FROM system_stats');
               const stats = rows.reduce((acc, row) => ({ ...acc, [row.key]: row.value }), {});
@@ -1191,9 +1624,31 @@ async function systemReset(socket) {
   } catch (e) {
     console.error('Failed to cleanup tasks directory:', e);
   }
+
+  // 6. Clean up audio and screenshots
+  if (socket) sendLog(socket, 'orchestrator', 'system', 'Purging local media (audio/screenshots)...');
+  try {
+    const audioDir = path.join(process.cwd(), 'audio');
+    const screenshotsDir = path.join(process.cwd(), 'screenshots');
+    
+    [audioDir, screenshotsDir].forEach(dir => {
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir);
+        for (const file of files) {
+          const filePath = path.join(dir, file);
+          if (fs.statSync(filePath).isFile() && !file.startsWith('.')) {
+            fs.unlinkSync(filePath);
+          }
+        }
+      }
+    });
+  } catch (e) {
+    console.error('Failed to clean up media directories:', e);
+  }
+
   await new Promise(r => setTimeout(r, 800));
 
-  // 6. Notify frontend
+  // 7. Notify frontend
   if (socket) {
     sendLog(socket, 'orchestrator', 'system', 'Systemic reset completed successfully.');
     socket.emit('agent_message', {
@@ -1223,7 +1678,8 @@ const checkKeys = () => ({
   hasGemini: true,
   hasTavily: !!process.env.TAVILY_API_KEY,
   hasTelegram: !!process.env.TELEGRAM_BOT_TOKEN,
-  hasPerplexity: !!process.env.PERPLEXITY_API_KEY
+  hasPerplexity: !!process.env.PERPLEXITY_API_KEY,
+  hasDuffel: !!getDuffelApiKey()
 });
 
 io.on('connection', (socket) => {
@@ -1250,6 +1706,21 @@ io.on('connection', (socket) => {
     // Handle /new command to clear history
     if (data.content.trim() === '/new') {
       await systemReset(socket);
+      return;
+    }
+
+    if (data.content.trim() === '/stop') {
+      let stopped = 0;
+      for (const [id, agent] of agentInstances.entries()) {
+        if (agent.processing) {
+          agent.stop();
+          stopped++;
+          activeAgents.get(id) && (activeAgents.get(id).status = 'idle');
+          io.emit('agent_status', { agentId: id, status: 'idle', message: '' });
+        }
+      }
+      sendLog(socket, 'orchestrator', 'system', `⏹ Generation stopped via /stop (${stopped} agent(s) halted)`, null, 'warning');
+      socket.emit('agent_message', { agentId: 'orchestrator', content: '_Generation stopped by user._', isTool: true });
       return;
     }
 
@@ -1318,6 +1789,20 @@ io.on('connection', (socket) => {
     io.emit('agent_status', { agentId, status: 'idle' });
   });
 
+  socket.on('stop_generation', () => {
+    let stopped = 0;
+    for (const [id, agent] of agentInstances.entries()) {
+      if (agent.processing) {
+        agent.stop();
+        stopped++;
+        activeAgents.get(id) && (activeAgents.get(id).status = 'idle');
+        io.emit('agent_status', { agentId: id, status: 'idle', message: '' });
+      }
+    }
+    sendLog(socket, 'orchestrator', 'system', `⏹ Generation stopped (${stopped} agent(s) halted)`, null, 'warning');
+    socket.emit('agent_message', { agentId: 'orchestrator', content: '_Generation stopped by user._', isTool: true });
+  });
+
   socket.on('clear_history', async (data) => {
     if (data.agentId === 'orchestrator') {
       await systemReset(socket);
@@ -1376,6 +1861,15 @@ io.on('connection', (socket) => {
       updateEnv('TELEGRAM_BOT_TOKEN', token);
       sendKeyStatus();
       socket.emit('agent_message', { agentId: 'orchestrator', content: 'Telegram Bot Token saved permanently to .env!' });
+    }
+  });
+
+  socket.on('set_duffel_key', (data) => {
+    const key = data.apiKey;
+    if (key) {
+      updateEnv('DUFFEL_API_KEY', key);
+      sendKeyStatus();
+      socket.emit('agent_message', { agentId: 'orchestrator', content: 'Duffel API Key saved permanently to .env!' });
     }
   });
 
@@ -1489,6 +1983,7 @@ function initTelegramBot(bot) {
   bot.start((ctx) => ctx.reply('Welcome to your Multi-Agent Personal Assistant! Send me a message, a voice note, or a photo to start.'));
   
   bot.on('photo', async (ctx) => {
+    lastTelegramChatId = ctx.chat.id;
     const photo = ctx.message.photo[ctx.message.photo.length - 1];
     const fileLink = await ctx.telegram.getFileLink(photo.file_id);
     const caption = ctx.message.caption || 'Look at this image';
@@ -1513,6 +2008,7 @@ function initTelegramBot(bot) {
   });
 
   bot.on('voice', async (ctx) => {
+    lastTelegramChatId = ctx.chat.id;
     const voice = ctx.message.voice;
     const fileLink = await ctx.telegram.getFileLink(voice.file_id);
     
@@ -1528,27 +2024,22 @@ function initTelegramBot(bot) {
       emit: async (event, data) => {
         if (event === 'agent_message' && !data.isTool) {
           if (data.content && data.content.trim() !== '') {
-            const tempWav = path.join(process.cwd(), `voice_${Date.now()}.wav`);
+            const tempMp3 = path.join(process.cwd(), `voice_${Date.now()}.mp3`);
             const tempOgg = path.join(process.cwd(), `voice_${Date.now()}.ogg`);
-            
             try {
-              const { exec } = await import('child_process');
-              const util = await import('util');
-              const execPromise = util.promisify(exec);
-              
-              // Generate voice with Mac 'say'
-              await execPromise(`say -o "${tempWav}" --data-format=I16@22050 "${data.content.replace(/"/g, '').replace(/\*/g, '').replace(/#/g, '')}"`);
-              // Convert to ogg opus for Telegram
-              await execPromise(`ffmpeg -y -i "${tempWav}" -c:a libopus "${tempOgg}"`);
-              // Send as voice
+              // Generate voice with Google Cloud TTS
+              const _tgText = data.content.replace(/\*/g, '').replace(/#/g, '').trim();
+              const { mp3Buffer, voice: _tgVoice } = await googleTTS(_tgText);
+              console.log(`[Telegram TTS] ${_tgVoice.name} (${_tgVoice.languageCode})`);
+              fs.writeFileSync(tempMp3, mp3Buffer);
+              await execPromise(`ffmpeg -y -i "${tempMp3}" -c:a libopus "${tempOgg}"`);
               await ctx.replyWithVoice({ source: tempOgg });
-              // Also send text for accessibility
               ctx.reply(data.content, { parse_mode: 'Markdown' });
             } catch (e) {
               console.error('Voice reply error:', e);
               ctx.reply(data.content, { parse_mode: 'Markdown' });
             } finally {
-              if (fs.existsSync(tempWav)) fs.unlinkSync(tempWav);
+              if (fs.existsSync(tempMp3)) fs.unlinkSync(tempMp3);
               if (fs.existsSync(tempOgg)) fs.unlinkSync(tempOgg);
             }
           }
@@ -1561,6 +2052,7 @@ function initTelegramBot(bot) {
   });
 
   bot.on('text', async (ctx) => {
+    lastTelegramChatId = ctx.chat.id;
     const text = ctx.message.text;
     
     // Create a mock socket-like object to bridge Telegram to existing agent logic
@@ -1591,19 +2083,74 @@ function initTelegramBot(bot) {
     await orchestrator.processMessage(text, mockSocket, 'gemini');
   });
 
+  bot.on('location', async (ctx) => {
+    lastTelegramChatId = ctx.chat.id;
+    const { latitude, longitude } = ctx.message.location;
+
+    // Reverse-geocode with Nominatim (no API key required, respects attribution)
+    let locationDescription = `latitude ${latitude}, longitude ${longitude}`;
+    try {
+      const geoRes = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`,
+        { headers: { 'User-Agent': 'FrAssist/1.0 (personal assistant)' } }
+      );
+      if (geoRes.ok) {
+        const geoData = await geoRes.json();
+        if (geoData.display_name) {
+          locationDescription = geoData.display_name;
+        }
+      }
+    } catch (geoErr) {
+      console.error('[Telegram location] Geocoding failed:', geoErr.message);
+    }
+
+    const isLive = !!ctx.message.location.live_period;
+    const locationMessage = isLive
+      ? `📍 I'm sharing my live location with you. I am currently at: ${locationDescription} (${latitude}, ${longitude}). Please use this to help me with anything location-related.`
+      : `📍 I'm sharing my location with you. I am at: ${locationDescription} (${latitude}, ${longitude}). Please use this to help me with anything location-related.`;
+
+    console.log(`[Telegram location] ${locationMessage}`);
+    await ctx.sendChatAction('typing');
+
+    const mockSocket = {
+      emit: (event, data) => {
+        if (event === 'agent_message' && !data.isTool) {
+          if (data.content && data.content.trim() !== '') {
+            try {
+              ctx.reply(data.content, { parse_mode: 'Markdown' });
+            } catch (e) {
+              ctx.reply(data.content);
+            }
+          }
+        }
+        if (event === 'agent_error') {
+          ctx.reply(`❌ Error: ${data.error}`);
+        }
+        io.emit(event, data);
+      }
+    };
+
+    await orchestrator.processMessage(locationMessage, mockSocket, 'gemini');
+  });
+
   bot.launch().then(() => {
     console.log(`Telegram bot [${botId}] launched successfully`);
   }).catch(err => console.error(`Telegram bot [${botId}] launch error:`, err));
 
   // Enable graceful stop for all relevant signals
   const shutdown = (signal) => {
-    console.log(`Stopping bot [${botId}] due to ${signal}`);
-    bot.stop(signal);
+    console.log(`Stopping bot [${botId}] due to ${signal}...`);
+    try {
+      bot.stop(signal);
+    } catch (e) {
+      // Ignore if already stopped
+    }
+    setTimeout(() => process.exit(0), 500); // Give it a moment to stop the bot then exit
   };
   
-  process.on('SIGINT', () => shutdown('SIGINT'));
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGUSR2', () => shutdown('SIGUSR2')); // Handle nodemon restarts
+  process.once('SIGINT', () => shutdown('SIGINT'));
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGUSR2', () => shutdown('SIGUSR2')); // Handle nodemon restarts
 }
 
 if (tgBot) {
@@ -1644,6 +2191,29 @@ app.get('/api/stats', async (req, res) => {
     res.json(stats);
   } catch (e) {
     res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+app.get('/api/stats/detailed', async (req, res) => {
+  try {
+    const db = await dbPromise;
+    // Group by date (YYYY-MM-DD) and agentId
+    const rows = await db.all(`
+      SELECT 
+        date(timestamp) as date, 
+        agentId, 
+        SUM(promptTokens) as inputTokens, 
+        SUM(candidatesTokens) as outputTokens,
+        SUM(totalTokens) as totalTokens,
+        COUNT(*) as requests
+      FROM token_usage_log 
+      GROUP BY date(timestamp), agentId
+      ORDER BY date DESC, totalTokens DESC
+      LIMIT 100
+    `);
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch detailed stats' });
   }
 });
 
@@ -1701,8 +2271,13 @@ const startServer = (port) => {
       if (currentPort !== actualPort) {
         fs.writeFileSync(portFilePath, JSON.stringify({ port: actualPort }));
       }
+
+      // Also write to frontend/.env.local for dynamic Vite proxying
+      const frontendEnvPath = path.join(process.cwd(), '..', 'frontend', '.env.local');
+      fs.writeFileSync(frontendEnvPath, `VITE_BACKEND_PORT=${actualPort}\n`);
+      console.log(`Dynamic port ${actualPort} synced to frontend/.env.local`);
     } catch (err) {
-      console.error('Failed to write port.json:', err);
+      console.error('Failed to sync port info:', err);
     }
   });
 

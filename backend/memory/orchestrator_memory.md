@@ -280,3 +280,334 @@ Ecco il riepilogo delle informazioni da aggiungere alla tua "Long-term Memory":
 **4. Long-term Preferences**
 *   **Interaction Style:** The user prefers visual verification (screenshots) for task confirmation. 
 *   **Constraint:** The user has shown interest in utilizing text-to-speech features; monitor for future integration or alternative methods if available.
+
+## Session Extract: 2026-05-03T17:26:51.171Z
+### Long-term Memory Summary
+
+**1. Key Facts/Decisions Made**
+*   **Bug Fix:** Identified and resolved a duplicate message issue in the Telegram integration caused by an erroneous broadcast command.
+*   **Booking Inquiry:** Drafted a response for a potential guest (ssbprimo@gmail.com) for a 3-night stay (August 24–27) at the **Floor 1** apartment.
+*   **Property Data:** Updated the `knowledge_base_t&m.md` with the official YouTube channel for apartment video tours (https://www.youtube.com/channel/UCOgvNu-3R5RFS268qQtnxIg).
+*   **Pricing:** Confirmed Floor 1 high-season (August) pricing at €150/night, plus a €50–75 cleaning fee, totaling €500–€525 for the requested 3-night stay.
+
+**2. New Skills or Tools Added**
+*   **`gemini-cli` Integration:** Authorized the use of the locally installed `gemini-cli` to perform direct code modifications. 
+    *   *Protocol:* Analyze (via `read`) $\rightarrow$ Verify scope $\rightarrow$ Execute change $\rightarrow$ Confirm with summary/diff.
+
+**3. Project-specific Context**
+*   **Tra-Montiemare:** The hosting team consists of Francesco and Enerlida.
+*   **Operational Details:**
+    *   Payment methods accepted: Bank transfer (EUR), Wise, Venmo, PayPal.
+    *   Booking requirements: ID/passport photo, signed Italian rental agreement, 50% deposit at booking, 50% balance due 1 week before check-in.
+    *   Cancellation Policy: 100% refund (30+ days prior), 50% refund (14–30 days prior), 0% refund (<14 days prior).
+
+**4. Long-term Preferences**
+*   **Communication:** Preference for professional, templated email responses for guest inquiries.
+*   **Technical:** Strong preference for "local-first" and "security-focused" development practices when using automated tools to modify the codebase.
+
+## Session Extract: 2026-05-03T17:41:02.126Z
+### Long-term Memory: Session Analytics & Tooling
+
+**1. Key Facts/Decisions Made**
+*   **Storage Strategy:** Adopted **JSON Lines (`.jsonl`)** as the format for local analytics storage. It was chosen for its append-only efficiency and ease of parsing via CLI tools (like `jq`) and Node.js.
+*   **File Path:** Analytics data will be stored in `data/usage_analytics.jsonl`.
+*   **Workflow Integration:** Usage tracking and session summarization must be triggered automatically upon the `/new` command within the main orchestrator loop.
+*   **Tooling Command:** All development tasks related to the FrAssist project must be delegated to the `gemini` CLI tool.
+
+**2. New Skills or Tools Added**
+*   **Local Analytics Engine:** Implementation of a `session_tracker.js` utility to summarize interactions (categorization and topic extraction) and calculate token usage.
+*   **Dashboard Script:** Creation of `scripts/show_dashboard.js` to parse the `.jsonl` file and aggregate usage statistics per category/task.
+*   **CLI Delegation:** Established a workflow where the agent acts as a supervisor/architect, delegating actual code generation and file system operations to the `gemini` CLI executable.
+
+**3. Project-Specific Context**
+*   **Repository Path:** `/Users/francescoclaw/Desktop/Progetti/FrAssist/backend`
+*   **Project Name:** FrAssist
+*   **Environment:** Local-first architecture (no external databases like Supabase used for this feature).
+
+**4. Long-term Preferences**
+*   **Process Automation:** The user strictly requires the AI to delegate development tasks to the `gemini` CLI rather than performing them via direct text output whenever possible.
+*   **Data Integrity:** The user prefers maintaining usage history in a format that remains human-readable and compatible with standard terminal utilities for future data analysis.
+
+## Session Extract: 2026-05-03T17:51:59.980Z
+## Long-term Memory: Project Context & Preferences
+
+### 1. Key Facts/Decisions
+*   **Model Availability Issue:** The requested model `qwen3.5:9b` is not a standard/available tag in the Ollama library; user likely meant a different version (e.g., `qwen2.5` or `qwen3` variants).
+*   **Action Status:** User opted to manually handle the model download and codebase integration.
+*   **Model Integration:** The task of adding the new model to the backend configuration is pending user intervention.
+
+### 2. New Skills or Tools Added
+*   **Ollama:** Confirmed as the local LLM runtime for the project.
+
+### 3. Project-Specific Context
+*   **Project Path:** `/Users/francescoclaw/Desktop/Progetti/FrAssist/backend`
+*   **Goal:** Integrate a local Qwen model into the existing backend architecture.
+
+### 4. Long-term Preferences
+*   **Autonomy:** User prefers to perform manual codebase updates and CLI operations when environment constraints (e.g., download timeouts) hinder automated assistance.
+*   **Communication:** User expects the model to stand by and wait for further instructions rather than attempting to force automated solutions when errors occur.
+
+## Session Extract: 2026-05-03T18:06:08.973Z
+### Long-term Memory: Tra-Montiemare
+
+**1. Key Facts/Decisions Made**
+*   **Pricing Correction:** Discarded daily rate calculations for long-term stays.
+*   **New Pricing Logic:**
+    *   **Stays 28+ days:** Apply the monthly rate.
+    *   **Stays 7+ days:** Apply the weekly rate.
+    *   **Short stays:** Apply daily rates.
+*   **Pro-ration Method:** For stays spanning different months, calculate the stay by splitting the period into full monthly chunks and prorating remaining days based on the next month’s monthly rate.
+
+**2. New Skills or Tools Added**
+*   **Database Integration:** Successfully established connection and query capabilities for the **Supabase** project database (`pricing` and `apartments` tables).
+*   **Attico Property Data:** Accessed specific IDs and rate structures (May Monthly: €1,300, June Monthly: €1,500).
+
+**3. Project-specific Context**
+*   **Property Focus:** Tra-Montiemare (Scalea).
+*   **Primary Unit:** "Attico" (Top Floor Apartment), ID: `4940b254-ea41-4871-b083-444793de667d`.
+*   **Standard Fee:** Cleaning fee remains fixed at €50.
+
+**4. Long-term Preferences**
+*   **Communication Tone:** Professional, welcoming, and hospitable (as per the "Francesco & Enerlida" template).
+*   **Operational Priority:** Accuracy in pricing is paramount; always check Supabase rates before quoting and apply duration-based discounts (monthly/weekly) automatically for relevant inquiries.
+
+## Session Extract: 2026-05-03T18:21:01.214Z
+## Long-term Memory: Project "FrAssist"
+
+### 1. Key Facts/Decisions Made
+*   **Project Structure Update**: Corrected the root directory path for the "FrAssist" project.
+*   **Workflow Delegation**: The user prefers to delegate coding tasks directly to the `gemini` CLI for implementation.
+*   **Feature Requirement**: Implementing drag-and-drop image upload functionality for the input box (UI focus).
+
+### 2. New Skills or Tools Added
+*   **CLI Tooling**: `gemini` CLI used as the primary engine for codebase modification.
+*   **Workflow Tracking**: Initiated internal tracking (Workflow ID: 1).
+
+### 3. Project-Specific Context
+*   **Root Directory**: `/Users/francescoclaw/Desktop/Progetti/FrAssist/`
+*   **Backend Path**: `/Users/francescoclaw/Desktop/Progetti/FrAssist/backend/`
+*   **Frontend Path**: `/Users/francescoclaw/Desktop/Progetti/FrAssist/frontend/`
+*   **Current Task**: Implementing drag-and-drop file support in the `frontend` directory.
+*   **Known Issues**: Remote orchestration via the model may hit execution timeouts for large codebase changes; direct terminal execution is the preferred fallback.
+
+### 4. Long-term Preferences
+*   **Direct Execution**: User prefers direct delegation to CLI tools over excessive intermediate analysis/oversight from the model when requesting code changes.
+*   **Path Accuracy**: Model must strictly adhere to the defined project root and subdirectory structure for all future path-related suggestions.
+
+## Session Extract: 2026-05-03T18:30:41.498Z
+### Long-term Memory Summary
+
+**1. Key Facts/Decisions Made**
+*   **Goal:** Implementing drag-and-drop image upload functionality in the `ChatInput.js` component.
+*   **Approach:** Decided to break down implementation into three sequential steps (state management, event handler logic, and JSX UI updates) after the `gemini` CLI faced timeout issues with a single monolithic request.
+*   **Technical Requirements:** Must include `preventDefault` and `stopPropagation` to prevent browser default behaviors, validate file MIME types (`image/*`), and handle memory management with `URL.revokeObjectURL()`.
+
+**2. New Skills or Tools Added**
+*   **Tooling Strategy:** Shifted workflow from single-pass `gemini` CLI commands to incremental, modular code editing to bypass command execution timeouts.
+
+**3. Project-Specific Context**
+*   **Project Name:** `FrAssist`
+*   **Target File:** `/Users/francescoclaw/Desktop/Progetti/FrAssist/frontend/src/components/ChatInput.js`
+*   **Current State:** Pending implementation of state (`droppedImage`, `isDragging`), event handlers (`onDragOver`, `onDragLeave`, `onDrop`), and preview rendering.
+
+**4. Long-term Preferences**
+*   **Workflow:** User prefers delegating code implementation directly to the `gemini` CLI/Model rather than writing code manually.
+*   **Interaction Style:** Expects the model to drive the execution; prefers the model to proactively suggest breakdowns or alternative methods (like `edit_file`) when initial automated approaches fail.
+
+## Session Extract: 2026-05-03T20:26:19.494Z
+### Long-Term Memory Summary
+
+**1. Key Facts/Decisions Made**
+*   **Multilingual Support:** The assistant is confirmed to be bilingual (Italian/English) and can adapt to the user's preferred language on the fly.
+*   **Communication Format:** The user has requested voice message responses. The assistant has agreed to use voice-to-voice communication, though it currently faces intermittent technical errors with the synthesis tool.
+*   **Session Reset:** The `/new` command was used to clear context and log session data into `usage_analytics.jsonl`.
+*   **Location Constraints:** Acknowledged that "Trader Joe's" is not available in Italy.
+
+**2. New Skills or Tools Added**
+*   **Voice Capability:** Enabled/activated voice message handling (receiving and sending).
+*   **Logging:** Established usage tracking via `usage_analytics.jsonl`.
+*   **Browser/Tool Integration:** Attempted usage of browser/location tools (though with persistent technical instability).
+
+**3. Project-Specific Context**
+*   **Tra-Montiemare:** A vacation rental property project located in **Scalea, Italy**.
+*   **FrAssist:** An active software development project requiring ongoing assistance.
+*   **User Geography:** The user splits time between **Scalea, Italy**, and **New York City**.
+
+**4. Long-Term Preferences**
+*   **Preference for Voice:** The user prefers interacting via voice messages rather than text-only input/output.
+*   **Bilingual Workflow:** The user expects the assistant to fluidly switch between Italian and English based on the context of the project or the conversation.
+*   **Proactive Status Checks:** The assistant is expected to monitor and offer progress updates on both *Tra-Montiemare* and *FrAssist* automatically at the start of sessions.
+
+## Session Extract: 2026-05-03T20:58:07.352Z
+### Long-term Memory: Project & Preference Update
+
+#### 1. Key Facts/Decisions Made
+*   **NYC Tennis Modalities:**
+    *   **Juniper Valley:** Permit-only, first-come, first-served, no online reservations.
+    *   **Astoria Park:** Permit-only, organized in-person "clipboard" system managed by an attendant (40-minute rule for sign-ups).
+    *   **McCarren Park:** Hybrid/Tennis Center model; uses *CourtReserve* for online bookings; operates as a "bubble" indoor facility in winter.
+*   **Voice Synthesis:** Technical issues were resolved, allowing for the generation of audio responses again.
+
+#### 2. New Skills or Tools Added
+*   **CourtReserve:** Identified as the specific management/booking platform for McCarren Park.
+
+#### 3. Project-Specific Context
+*   **`FrAssist`:** Ongoing development of a drag-and-drop feature.
+*   **`Tra-Montiemare`:** Active project requiring guest-related task management.
+
+#### 4. Long-term Preferences
+*   **Language:** Communication remains set to **English** for project consistency, despite the user's occasional use of Spanish/Italian.
+*   **Interaction Style:** The user has a clear **preference for voice interactions/audio summaries** over text.
+
+## Session Extract: 2026-05-03T21:00:12.265Z
+### Long-Term Memory Summary
+
+**1. Key Facts/Decisions**
+*   **Core Directive Update:** Permanently updated `system.md` to prioritize extreme creativity, resilience, and a commitment to "going the extra mile" for all task completions.
+*   **Operational Stance:** The model has formally integrated these traits into its primary operating instructions to ensure consistent application across all future interactions.
+
+**2. New Skills or Tools**
+*   **N/A** (Focus was on behavioral alignment rather than technical tools).
+
+**3. Project-Specific Context**
+*   **User Expectations:** The user requires a high-performance, proactive, and persistent model that does not settle for minimal completion but seeks high-quality, creative outputs.
+
+**4. Long-Term Preferences**
+*   **Performance Standard:** High-effort, high-creativity, and resilient problem-solving are now the default expected standards for all tasks assigned by the user.
+
+## Session Extract: 2026-05-05T01:28:14.721Z
+Ecco il riepilogo delle informazioni da aggiungere alla "Long-term Memory":
+
+### 1. Key facts/decisions
+*   **Protocollo risposte Facebook:** Formato breve, informale, accogliente e sempre aperto a discussioni.
+*   **Struttura preventivo:** Sempre includere il prezzo totale (affitto + €50 pulizie finali).
+*   **Regole di calcolo:**
+    *   Soggiorni settimanali: applicare la tariffa settimanale fissa.
+    *   Soggiorni misti: tariffa settimanale + tariffa giornaliera proporzionale per i giorni eccedenti.
+*   **Logica di prenotazione:** 
+    *   **Piano 1:** Adatto a famiglie/gruppi di 4 persone.
+    *   **Attico:** Adatto solo per massimo 2 persone.
+
+### 2. New skills or tools
+*   **Integrazione Dati:** Utilizzo dei dati estratti da Supabase per tariffe e disponibilità (Piano 1: €1100 sett./€165 giorn.; Attico: €1000 sett./€150 giorn.).
+*   **Gestione Media:** Utilizzo di link specifici ai video YouTube Shorts per ogni unità abitativa.
+
+### 3. Project-specific context
+*   **Progetto:** "Tra Monti e Mare" (Scalea).
+*   **Host:** Francesco & Enerlida.
+*   **Asset:**
+    *   *Piano 1:* [https://www.youtube.com/shorts/eM_ICNSwhYA](https://www.youtube.com/shorts/eM_ICNSwhYA)
+    *   *Attico:* [https://youtube.com/shorts/yP7_KB9WRWM](https://youtube.com/shorts/yP7_KB9WRWM)
+    *   *Extra (Sunset):* [https://www.youtube.com/shorts/mQ8imLuc5bM](https://www.youtube.com/shorts/mQ8imLuc5bM)
+*   **Sito di riferimento:** [tra-montiemare.it/d-n](https://tra-montiemare.it/d-n)
+
+### 4. Long-term preferences
+*   **Disponibilità:** Se il cliente chiede disponibilità per un periodo specifico, chiedere sempre il numero di ospiti (adulti/bambini) prima di proporre l'appartamento.
+*   **Trasparenza:** Non proporre l'Attico se il gruppo è superiore a 2 persone.
+*   **Precisione:** Mantenere sempre aggiornato il database interno con le informazioni caricate dal progetto.
+
+## Session Extract: 2026-05-05T01:54:30.978Z
+### Long-term Memory: Project "Terrace Bistro Set"
+
+**1. Key Facts/Decisions Made**
+*   **Goal:** Purchase a 3-piece patio bistro set (2 chairs, 1 table).
+*   **Criteria:** Must be foldable, "nice design," and under $100 USD.
+*   **Strategy Shift:** Due to frequent "bot-detection" issues and link decay, the user and model transitioned from relying on direct URL generation to using specific product names and search queries.
+*   **Preferred Models Identified:** Grand Patio Premium Steel Bistro Set, Best Choice Products 3-Piece Bistro Set, and Alpine Corporation 3-Piece Folding Set.
+
+**2. New Skills or Tools Added**
+*   **Tool Usage:** Chromium-based browsing sessions were attempted to simulate user-side navigation.
+*   **Troubleshooting:** Implemented a fallback strategy using DuckDuckGo to bypass aggressive bot-detection blocks on major retail sites.
+
+**3. Project-Specific Context**
+*   **Environment:** The terrace is a small space, necessitating the "folding" and "compact" design requirements.
+*   **Technical Constraint:** The user expects the AI to actively browse the web to provide verified, actionable shopping information rather than generic suggestions.
+
+**4. Long-term Preferences**
+*   **Transparency:** User prefers direct, functional links but is willing to accept product names if the AI explains the limitations (i.e., site security/bot-detection).
+*   **Workflow:** The user prefers the AI to "browse on their behalf" using automated browser sessions.
+
+## Session Extract: 2026-05-05T02:01:47.421Z
+### Long-term Memory: Project Assistance
+
+#### 1. Key Facts/Decisions Made
+*   **Workflow Change:** Moved away from session-based "link-scraping" (which produces broken, tracking-heavy URLs) to a **"Canonical/ASIN Extraction" protocol**.
+*   **Protocol Confirmation:** The model will now navigate to product pages and extract the `rel="canonical"` metadata or the unique **ASIN** (Amazon Standard Identification Number) to construct permanent, shareable links.
+*   **User Requirement:** The user explicitly rejected the "manual search query" workaround, demanding full agent autonomy in researching and providing functional links.
+
+#### 2. New Skills/Tools Added
+*   **Canonical URL Extraction:** Ability to read HTML head metadata to find permanent product links.
+*   **ASIN-Based Navigation:** Capability to construct stable URLs using `https://www.amazon.com/dp/[ASIN]`.
+*   **DOM Interaction:** Use of `XPath`/CSS selectors combined with `playwright` to navigate and isolate product data points rather than relying on search result snapshots.
+
+#### 3. Project-Specific Context
+*   **Current Task:** Researching 3-piece folding patio bistro sets (small terrace sized).
+*   **Preference:** Looking for "good-looking" designs; initial candidates identified were Grand Patio (steel), Best Choice Products (sage/steel), and Alpine Corporation (white).
+*   **Goal:** Provide the user with a list of vetted products with 100% functional, permanent links.
+
+#### 4. Long-term Preferences
+*   **Agent Independence:** The user expects the AI to be fully autonomous. If a tool fails (like link-scraping), the user prefers the agent to propose a more robust technical solution rather than shifting the labor of search onto the user.
+*   **Link Integrity:** All future product recommendations must be verified for permanent accessibility.
+
+## Session Extract: 2026-05-05T02:06:17.445Z
+### Long-term Memory: Agent Architecture & Capabilities
+
+**1. Key Facts/Decisions**
+*   **Architecture:** Operates as a modular, extensible system rather than a static list of predefined skills.
+*   **Methodology:** Uses "progressive disclosure"—skills are only loaded into active memory when a specific task requires them to preserve context window efficiency.
+*   **Formalization:** Workflows and repetitive tasks can be formalized into custom "skills" to ensure consistent execution.
+
+**2. New Skills or Tools Added**
+*   **Agent Skills Standard:** Supports the open standard for packageable instruction sets (defined via `SKILL.md` files).
+*   **Core Toolkit:** Confirmed capabilities include `browser_control`, `supabase_action`, and `duffel_travel`.
+
+**3. Project-specific Context**
+*   The system is designed to scale horizontally; it can handle an unlimited number of domain-specific tasks by dynamically loading the necessary logic on-demand.
+
+**4. Long-term Preferences**
+*   **Operational Philosophy:** Prefers a "specialist on-demand" approach to avoid overloading active context windows.
+*   **User Collaboration:** Encourages the user to identify repetitive workflows for formalization into standardized skills to improve future task performance.
+
+## Session Extract: 2026-05-05T02:15:19.624Z
+### Long-term Memory: Travel Planning
+
+**1. Key Facts/Decisions Made**
+*   **Trip Details:** Planning travel from NYC to Miami for June 1–8, 2026.
+*   **Data Source:** Flight options were retrieved via browser/Google Flights; the Duffel API was requested by the user, but experienced significant integration/configuration issues regarding environment variables.
+*   **Booking Status:** Bookings cannot be finalized by the model; the user must use external links (e.g., Google Flights/airline sites) for payments.
+
+**2. New Skills or Tools Added**
+*   **Duffel API:** Attempted integration for flight search; requires persistent environment variable configuration (`DUFFEL_API_KEY`) for future sessions.
+
+**3. Project-Specific Context**
+*   **Destination Preferences:** Open to Miami International (MIA) or Fort Lauderdale (FLL).
+*   **Origin:** NYC (open to JFK, LGA, or EWR).
+*   **User Constraint:** The user strongly prefers the use of the Duffel API for travel data retrieval over standard browser-based searches.
+
+**4. Long-term Preferences**
+*   **API Utilization:** The user expects the model to utilize the Duffel API for travel-related tasks. If the tool fails, the user prefers troubleshooting the API connection rather than reverting to manual browser searches.
+*   **Communication:** Direct and persistent in requesting specific technical workflows (Duffel API) despite system errors.
+
+## Session Extract: 2026-05-05T02:24:23.757Z
+### Long-term Memory Summary
+
+**1. Key Facts/Decisions Made**
+*   **Operating Framework:** The assistant is now established as a "hyper-personal assistant" with a mandate to provide high-agency support across all life areas, not just the *Tra-Montiemare* property.
+*   **Travel Planning:** Settled on a November trip to the Caribbean. Aruba (AUA) is the primary target due to weather stability.
+*   **Duffel Capabilities:** Confirmed that current `duffel_travel` integration is "read-only" (search/research). Full booking capabilities would require live API credentials, custom order-creation logic, and a "human-in-the-loop" approval process for security.
+*   **Assistance Scope:** The assistant can research flights (Duffel) and general travel/hotel logistics via browser, but lacks direct API booking access for hotels and trains.
+
+**2. New Skills or Tools Added**
+*   **`duffel_travel` (Flight Research):** Capability to perform `search_airports` and `search_flights` for real-time pricing and availability.
+*   **Browser Control:** Confirmed capability to use browser tools to research accommodation and train travel where no dedicated API exists.
+
+**3. Project-Specific Context**
+*   **Primary Projects:** 
+    *   *Tra-Montiemare:* Ongoing property management.
+    *   *Caribbean Travel (Nov 2026):* New project; focus is on Aruba; preference for non-stop flights and high-value options.
+*   **General Context:** User expresses a need for broad, proactive support including NYC logistics, personal maintenance, and development tasks.
+
+**4. Long-term Preferences**
+*   **Safety/Security:** High priority on "human-in-the-loop" verification for any financial transactions or booking flows.
+*   **Efficiency:** Preference for non-stop travel options.
+*   **Proactivity:** The assistant is expected to balance multiple life projects simultaneously rather than hyper-focusing on a single ongoing project.

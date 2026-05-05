@@ -1,49 +1,19 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, Terminal, Plus, X, Brain, Shield, Folder, FileText, Image as ImageIcon, Globe, Mic, Volume2, VolumeX } from 'lucide-react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
-import ReactMarkdown from 'react-markdown';
+import { Bot } from 'lucide-react';
 import './index.css';
 
-type Message = {
-  id: string;
-  role: 'user' | 'assistant';
-  agentId?: string;
-  content: string;
-  images?: string[];
-  isTool?: boolean;
-  usage?: { promptTokens: number; candidatesTokens: number; totalTokens: number };
-  toolExecutions?: { toolName: string; args: string }[];
-};
-
-type LogEvent = {
-  id: string;
-  timestamp: string;
-  agentId: string;
-  type: string;
-  level: string;
-  message: string;
-  data: any;
-};
-
-type Agent = {
-  id: string;
-  name: string;
-  role: string;
-  status: 'idle' | 'working';
-  icon: React.ReactNode;
-  progress?: number;
-  estimate?: number;
-};
-
-type AgentDetails = {
-  agentId: string;
-  rules: string;
-  skills: any[];
-  memory: {
-    task: string;
-    longTerm: string;
-  };
-};
+import type { Message, LogEvent, Agent, AgentDetails, KeyStatus } from './types';
+import { Sidebar } from './components/Sidebar';
+import { Header } from './components/Header';
+import { ChatArea } from './components/ChatArea';
+import { InputArea } from './components/InputArea';
+import { LogSidebar } from './components/LogSidebar';
+import { KnowledgeExplorer } from './components/KnowledgeExplorer';
+import { AgentCreateModal } from './components/AgentCreateModal';
+import { AgentInspectorModal } from './components/AgentInspectorModal';
+import { ImageModal } from './components/ImageModal';
+import { UsageDashboard } from './components/UsageDashboard';
 
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([
@@ -109,11 +79,12 @@ export default function App() {
 
   const [currentStatus, setCurrentStatus] = useState('');
   const [ollamaStatus, setOllamaStatus] = useState<any>(null);
-  const [keyStatus, setKeyStatus] = useState({ hasGemini: false, hasTavily: false, hasTelegram: false, hasPerplexity: false });
+  const [keyStatus, setKeyStatus] = useState<KeyStatus>({ hasGemini: false, hasTavily: false, hasTelegram: false, hasPerplexity: false });
   const [isConfiguringKey, setIsConfiguringKey] = useState<'gemini' | 'tavily' | 'telegram' | 'perplexity' | null>(null);
   const [aiProvider, setAiProvider] = useState<'gemini' | 'ollama' | 'perplexity' | 'ollama_qwen' | 'vertex_research'>('gemini');
   const [logs, setLogs] = useState<LogEvent[]>([]);
   const [showLogs, setShowLogs] = useState(false);
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   
   const [activeAgents, setActiveAgents] = useState<Agent[]>([
     { id: 'orchestrator', name: 'Orchestrator', role: 'Main Controller', status: 'idle', icon: <Bot size={16} /> },
@@ -131,6 +102,8 @@ export default function App() {
   const [agentIdea, setAgentIdea] = useState('');
   const [isGeneratingAgent, setIsGeneratingAgent] = useState(false);
   const [networkIp, setNetworkIp] = useState<string>('');
+  const [showUsageDashboard, setShowUsageDashboard] = useState(false);
+  const [detailedStats, setDetailedStats] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchNetworkInfo = async () => {
@@ -139,8 +112,8 @@ export default function App() {
         const data = await res.json();
         // Find the first non-internal IPv4 address
         for (const iface of Object.values(data)) {
-          if (Array.isArray(iface) && iface.length > 0) {
-            setNetworkIp(iface[0]);
+          if (Array.isArray(iface) && (iface as any[]).length > 0) {
+            setNetworkIp((iface as any[])[0]);
             break;
           }
         }
@@ -159,10 +132,12 @@ export default function App() {
   const [systemStats, setSystemStats] = useState({ total_input_tokens: 0, total_output_tokens: 0, total_requests: 0 });
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const settingsMenuRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const scrollToBottom = () => {
@@ -175,6 +150,16 @@ export default function App() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (settingsMenuRef.current && !settingsMenuRef.current.contains(e.target as Node)) {
+        setShowSettingsMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   useEffect(() => {
     scrollLogsToBottom();
@@ -228,10 +213,11 @@ export default function App() {
       }
     });
 
-    newSocket.on('agent_status', (data: { agentId: string; status: 'idle' | 'working' }) => {
+    newSocket.on('agent_status', (data: { agentId: string; status: 'idle' | 'working', message?: string }) => {
       if (data.agentId === 'orchestrator') {
         setIsTyping(data.status === 'working');
         if (data.status === 'idle') setCurrentStatus('');
+        else if (data.message) setCurrentStatus(data.message);
       }
       setActiveAgents((prev) => 
         prev.map(a => a.id === data.agentId ? { ...a, status: data.status } : a)
@@ -260,7 +246,7 @@ export default function App() {
       });
     });
 
-    newSocket.on('api_key_status', (data: { hasGemini: boolean; hasTavily: boolean; hasTelegram: boolean; hasPerplexity: boolean }) => {
+    newSocket.on('api_key_status', (data: KeyStatus) => {
       setKeyStatus(data);
       if (!data.hasGemini && !data.hasTavily && !data.hasTelegram && !data.hasPerplexity) {
         setMessages((prev) => [
@@ -311,6 +297,18 @@ export default function App() {
         prev.map(a => a.id === data.agentId ? { ...a, progress: data.progress } : a)
       );
     });
+    
+    newSocket.on('tool_output', (data: { tool: string; content: string; type?: string }) => {
+      setLogs((prev) => [...prev, {
+        id: Date.now().toString() + Math.random().toString(36).substring(7),
+        timestamp: new Date().toISOString(),
+        agentId: 'system',
+        type: 'tool_output',
+        level: data.type === 'stderr' ? 'error' : 'info',
+        message: data.content,
+        data: { tool: data.tool }
+      }]);
+    });
 
     newSocket.on('agent_details', (data: AgentDetails) => {
       setSelectedAgentDetails(data);
@@ -321,6 +319,16 @@ export default function App() {
     newSocket.on('agent_config_generated', (config: any) => {
       setNewAgent(config);
       setIsGeneratingAgent(false);
+    });
+
+    newSocket.on('voice_message', (data: { url: string; text: string }) => {
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: 'assistant',
+        agentId: 'orchestrator',
+        content: '',
+        audioUrl: data.url,
+      }]);
     });
 
     return () => {
@@ -368,6 +376,16 @@ export default function App() {
     }
   };
 
+  const fetchDetailedStats = async () => {
+    try {
+      const res = await fetch('/api/stats/detailed');
+      const data = await res.json();
+      setDetailedStats(data);
+    } catch (err) {
+      console.error('Failed to fetch detailed stats:', err);
+    }
+  };
+
   const launchChrome = async () => {
     try {
       await fetch('/api/chrome/launch', { method: 'POST' });
@@ -379,8 +397,8 @@ export default function App() {
 
   useEffect(() => {
     fetchStats();
-    const interval = setInterval(fetchStats, 10000); // Refresh stats every 10s
-    return () => clearInterval(interval);
+    const statsInterval = setInterval(fetchStats, 10000); // Refresh stats every 10s
+    return () => clearInterval(statsInterval);
   }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -388,10 +406,10 @@ export default function App() {
     setInput(val);
     
     if (val === '/') {
-      setSuggestions(['/new', '/learn', '/help']);
+      setSuggestions(['/new', '/stop', '/learn', '/help']);
       setShowSuggestions(true);
     } else if (val.startsWith('/')) {
-      const list = ['/new', '/learn', '/help'].filter(s => s.startsWith(val));
+      const list = ['/new', '/stop', '/learn', '/help'].filter(s => s.startsWith(val));
       setSuggestions(list);
       setShowSuggestions(list.length > 0);
     } else {
@@ -402,6 +420,37 @@ export default function App() {
   const handleSuggestionClick = (cmd: string) => {
     setInput(cmd);
     setShowSuggestions(false);
+  };
+
+  const handleStop = () => {
+    if (socket) socket.emit('stop_generation');
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    // Only clear if leaving the drop zone entirely (not a child element)
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const droppedFiles = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    droppedFiles.forEach(file => {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const compressed = await compressImage(reader.result as string);
+        setSelectedImages(prev => [...prev, compressed]);
+      };
+      reader.readAsDataURL(file);
+    });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -428,6 +477,11 @@ export default function App() {
       setLogs([]);
       if (socket) socket.emit('clear_history', { agentId: 'orchestrator' });
       setInput('');
+      return;
+    }
+
+    if (input === '/stop') {
+      handleStop();
       return;
     }
     
@@ -488,10 +542,10 @@ export default function App() {
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
+    const uploadFiles = e.target.files;
+    if (!uploadFiles) return;
 
-    Array.from(files).forEach(file => {
+    Array.from(uploadFiles).forEach(file => {
       const reader = new FileReader();
       reader.onloadend = async () => {
         const compressed = await compressImage(reader.result as string);
@@ -543,685 +597,143 @@ export default function App() {
     setNewAgent({ name: '', role: '', task: '', scope: '', memory: '' });
   };
 
+  const currentContextTokens = useMemo(() => {
+    const messagesWithUsage = messages.filter(m => m.usage);
+    if (messagesWithUsage.length === 0) return 0;
+    return messagesWithUsage[messagesWithUsage.length - 1].usage!.promptTokens;
+  }, [messages]);
+
   return (
     <div className="app-container">
-      {/* Agent Tracker Sidebar */}
-      <aside className="sidebar">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <h2 style={{ margin: 0 }}>Agent Tracker</h2>
-          <button 
-            onClick={() => setShowCreateModal(true)}
-            className="add-agent-btn"
-            style={{ 
-              background: '#3b82f6', 
-              color: 'white', 
-              border: 'none', 
-              borderRadius: '50%', 
-              width: '28px', 
-              height: '28px', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center',
-              cursor: 'pointer'
-            }}
-          >
-            <Plus size={16} />
-          </button>
-        </div>
-        <div className="agent-list" style={{ flex: 1, overflowY: 'auto' }}>
-          {activeAgents.map((agent) => (
-            <div 
-              key={agent.id} 
-              className={`agent-card ${selectedAgentId === agent.id ? 'active' : ''}`}
-              onClick={() => {
-                setSelectedAgentId(agent.id);
-                setShowInspector(true);
-                socket?.emit('request_agent_details', { agentId: agent.id });
-              }}
-            >
-              <div className="agent-header">
-                <div className="agent-info">
-                  <div className="agent-icon">{agent.icon}</div>
-                  <div>
-                    <div className="agent-name">{agent.name}</div>
-                    <div className="agent-role">{agent.role}</div>
-                  </div>
-                </div>
-                <div className={`status-indicator ${agent.status}`}></div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {ollamaStatus && (
-          <div className="ollama-monitor shadow-sm" style={{ margin: '1rem', padding: '0.75rem', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between' }}>
-              <span>Local LLM Status</span>
-              <span style={{ color: '#4ade80' }}>● Live</span>
-            </div>
-            {ollamaStatus.models?.map((m: any, i: number) => (
-              <div key={i} style={{ marginBottom: '0.5rem' }}>
-                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#f1f5f9' }}>{m.name}</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#94a3b8' }}>
-                  <span>Size: {m.size}</span>
-                  <span>Used: {m.size}</span>
-                </div>
-              </div>
-            )) || <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>No models active</div>}
-          </div>
-        )}
-
-        <div className="system-usage shadow-sm" style={{ margin: '1rem', padding: '0.75rem', background: 'rgba(59, 130, 246, 0.05)', borderRadius: '12px', border: '1px solid rgba(59, 130, 246, 0.1)' }}>
-          <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#3b82f6', fontWeight: 600, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Brain size={12} /> Cumulative Usage
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-              <div style={{ fontWeight: 600, color: '#334155' }}>{(systemStats.total_input_tokens / 1000).toFixed(1)}k</div>
-              In Tokens
-            </div>
-            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-              <div style={{ fontWeight: 600, color: '#334155' }}>{(systemStats.total_output_tokens / 1000).toFixed(1)}k</div>
-              Out Tokens
-            </div>
-          </div>
-          <div style={{ marginTop: '0.5rem', fontSize: '0.65rem', color: '#94a3b8', textAlign: 'right' }}>
-            Total Requests: {systemStats.total_requests}
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Chat Area */}
+      <Sidebar
+        setShowCreateModal={setShowCreateModal}
+        activeAgents={activeAgents}
+        selectedAgentId={selectedAgentId}
+        setSelectedAgentId={setSelectedAgentId}
+        setShowInspector={setShowInspector}
+        socket={socket}
+        ollamaStatus={ollamaStatus}
+        systemStats={systemStats}
+        onUsageClick={() => {
+          fetchDetailedStats();
+          setShowUsageDashboard(true);
+        }}
+      />
+      
       <main className="main-content">
-        <header className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h1>Workspace</h1>
-          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-            <div className="key-indicators" style={{ display: 'flex', gap: '0.5rem' }}>
-              <button 
-                onClick={() => setIsConfiguringKey('gemini')}
-                className={`key-badge ${keyStatus.hasGemini ? 'active' : ''}`}
-                title="Configure Vertex AI Project"
-              >
-                Vertex {keyStatus.hasGemini ? '✅' : '❌'}
-              </button>
-              <button 
-                onClick={() => setIsConfiguringKey('tavily')}
-                className={`key-badge ${keyStatus.hasTavily ? 'active' : ''}`}
-                title="Configure Tavily Key"
-              >
-                Tavily {keyStatus.hasTavily ? '✅' : '❌'}
-              </button>
-              <button 
-                onClick={() => setIsConfiguringKey('telegram')}
-                className={`key-badge ${keyStatus.hasTelegram ? 'active' : ''}`}
-                title="Configure Telegram Bot"
-              >
-                Telegram {keyStatus.hasTelegram ? '✅' : '❌'}
-              </button>
-              <button 
-                onClick={() => setIsConfiguringKey('perplexity')}
-                className={`key-badge ${keyStatus.hasPerplexity ? 'active' : ''}`}
-                title="Configure Perplexity Key"
-              >
-                Perplexity {keyStatus.hasPerplexity ? '✅' : '❌'}
-              </button>
-            </div>
-            <select 
-              value={aiProvider} 
-              onChange={(e) => setAiProvider(e.target.value as any)}
-              style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #e2e8f0', background: 'white' }}
-            >
-              <option value="gemini">Vertex Agents (Gemini 2.0)</option>
-              <option value="vertex_research">Deep Research Agent</option>
-              <option value="perplexity">Perplexity Sonar</option>
-              <option value="ollama">Ollama (gemma4:e2b)</option>
-              <option value="ollama_qwen">Ollama (qwen2.5-coder:14b)</option>
-            </select>
-            <button 
-              onClick={() => setShowFiles(!showFiles)}
-              style={{ padding: '0.5rem 1rem', borderRadius: '4px', border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-              title="Knowledge Base"
-            >
-              <Folder size={16} />
-              <span className="hide-mobile">Knowledge Base</span>
-            </button>
-            <button 
-              onClick={toggleTts}
-              style={{ padding: '0.5rem 1rem', borderRadius: '4px', border: '1px solid #e2e8f0', background: isTtsEnabled ? '#f0fdf4' : 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', color: isTtsEnabled ? '#166534' : '#64748b' }}
-              title="Toggle Text-to-Speech"
-            >
-              {isTtsEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
-              <span className="hide-mobile">{isTtsEnabled ? 'Voice' : 'Muted'}</span>
-            </button>
+        <Header
+          aiProvider={aiProvider}
+          setAiProvider={setAiProvider}
+          showSettingsMenu={showSettingsMenu}
+          setShowSettingsMenu={setShowSettingsMenu}
+          settingsMenuRef={settingsMenuRef}
+          keyStatus={keyStatus}
+          setIsConfiguringKey={setIsConfiguringKey}
+          showFiles={showFiles}
+          setShowFiles={setShowFiles}
+          showLogs={showLogs}
+          setShowLogs={setShowLogs}
+          isTtsEnabled={isTtsEnabled}
+          toggleTts={toggleTts}
+          launchChrome={launchChrome}
+          networkIp={networkIp}
+          setMessages={setMessages}
+          setLogs={setLogs}
+          socket={socket}
+        />
 
-            {networkIp && (
-              <div style={{ fontSize: '0.7rem', color: '#64748b', background: '#f8fafc', padding: '0.5rem', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                <Globe size={12} style={{ marginRight: '0.2rem' }} />
-                Network: http://{networkIp}:3001
-              </div>
-            )}
+        <ChatArea
+          messages={messages}
+          activeAgents={activeAgents}
+          logs={logs}
+          currentStatus={currentStatus}
+          setEnlargedImage={setEnlargedImage}
+          messagesEndRef={messagesEndRef}
+          handleStop={handleStop}
+        />
 
-            <button 
-              onClick={launchChrome}
-              style={{ padding: '0.5rem 1rem', borderRadius: '4px', border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-              title="Launch Chrome with Remote Debugging"
-            >
-              <Globe size={16} color="#4285F4" />
-              <span className="hide-mobile">Connect Chrome</span>
-            </button>
-            <button 
-              onClick={() => setShowLogs(!showLogs)}
-              style={{ padding: '0.5rem 1rem', borderRadius: '4px', border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer' }}
-            >
-              {showLogs ? 'Hide Logs' : 'Show Logs'}
-            </button>
-            <button 
-              onClick={() => {
-                setMessages([]);
-                setLogs([]);
-                if (socket) socket.emit('clear_history', { agentId: 'orchestrator' });
-              }}
-              style={{ 
-                padding: '0.5rem 1rem', 
-                borderRadius: '4px', 
-                border: '1px solid #ef4444', 
-                background: '#fee2e2', 
-                color: '#b91c1c',
-                cursor: 'pointer',
-                fontWeight: 600
-              }}
-            >
-              Reset Workspace
-            </button>
-          </div>
-        </header>
-
-        <div className="chat-container">
-          {messages.map((msg) => (
-            <div key={msg.id} className={`message-wrapper ${msg.role} ${msg.isTool ? 'tool-message' : ''}`}>
-              <div className={`message ${msg.role} ${msg.isTool ? 'tool' : ''}`}>
-                {msg.role === 'assistant' && !msg.isTool && (
-                  <div className="message-header">
-                    <Bot size={14} /> {activeAgents.find(a => a.id === msg.agentId)?.name || msg.agentId || 'Orchestrator'}
-                  </div>
-                )}
-                {msg.isTool && (
-                  <div className="tool-execution-header">
-                    <Terminal size={12} /> Tool Action ({activeAgents.find(a => a.id === msg.agentId)?.name || msg.agentId || 'Orchestrator'})
-                  </div>
-                )}
-                <div className="message-content">
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
-                </div>
-                {msg.images && msg.images.length > 0 && (
-                  <div className="message-images" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-                    {msg.images.map((img, i) => (
-                      <div 
-                        key={i} 
-                        className="message-image" 
-                        style={{ 
-                          width: '120px', 
-                          height: '120px', 
-                          borderRadius: '8px', 
-                          overflow: 'hidden', 
-                          border: '1px solid #e2e8f0',
-                          cursor: 'zoom-in',
-                          transition: 'transform 0.2s ease'
-                        }}
-                        onClick={() => setEnlargedImage(img)}
-                      >
-                        <img 
-                          src={img} 
-                          alt="Uploaded content" 
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {msg.usage && !msg.isTool && (
-                  <div className="usage-stats" style={{ marginTop: '0.5rem', fontSize: '0.7rem', color: '#64748b', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem', display: 'flex', gap: '0.75rem' }}>
-                    <span>Input: {msg.usage.promptTokens}</span>
-                    <span>Output: {msg.usage.candidatesTokens}</span>
-                    <span>Total: {msg.usage.totalTokens}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-          {activeAgents.filter(a => a.status === 'working').map(agent => (
-            <div key={`typing-${agent.id}`} className="message-row assistant">
-              <div className="message-bubble shadow-sm typing-bubble">
-                <div className="message-header">
-                  <span className="agent-icon animate-pulse">
-                    <Bot size={14} />
-                  </span>
-                  <span className="agent-name">{agent.name}</span>
-                </div>
-                <div className="flex items-center gap-3 mt-1">
-                  <div className="flex gap-1">
-                    <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                    <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                    <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                  </div>
-                  <span className="text-sm text-gray-500 italic">
-                    {agent.id === 'orchestrator' ? currentStatus || 'Thinking...' : 'Working...'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
-
-        <div className="input-area">
-          {showSuggestions && (
-            <div className="suggestions-menu" style={{ 
-              position: 'absolute', 
-              bottom: '100%', 
-              left: '1rem', 
-              right: '1rem', 
-              background: 'white', 
-              borderRadius: '8px', 
-              boxShadow: '0 -4px 15px rgba(0,0,0,0.1)', 
-              border: '1px solid #e2e8f0',
-              marginBottom: '0.5rem',
-              zIndex: 100,
-              padding: '0.5rem'
-            }}>
-              {suggestions.map(s => (
-                <button 
-                  key={s} 
-                  onClick={() => handleSuggestionClick(s)}
-                  style={{ 
-                    display: 'block', 
-                    width: '100%', 
-                    textAlign: 'left', 
-                    padding: '0.75rem 1rem', 
-                    border: 'none', 
-                    background: 'none', 
-                    cursor: 'pointer',
-                    borderRadius: '4px',
-                    fontSize: '0.9rem',
-                    color: '#334155'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
-                >
-                  <span style={{ fontWeight: 600, color: '#3b82f6' }}>{s}</span>
-                  <span style={{ marginLeft: '1rem', color: '#64748b', fontSize: '0.8rem' }}>
-                    {s === '/new' ? 'Analyze session and reset workspace' : 
-                     s === '/learn' ? 'Extract insights and architectural proposals' : 
-                     'Show available commands'}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-          <form className="input-container" onSubmit={handleSubmit}>
-            <button
-              type="button"
-              onClick={toggleRecording}
-              style={{
-                background: 'none',
-                border: 'none',
-                padding: '0.5rem',
-                cursor: 'pointer',
-                color: isRecording ? '#ef4444' : '#64748b',
-                display: 'flex',
-                alignItems: 'center',
-                transition: 'all 0.2s ease',
-                marginRight: '0.5rem'
-              }}
-              title={isRecording ? "Stop Recording" : "Start Voice Input"}
-            >
-              <Mic size={20} style={{ animation: isRecording ? 'pulse 1.5s infinite' : 'none' }} />
-            </button>
-            <textarea
-              ref={textareaRef}
-              rows={1}
-              value={input}
-              onPaste={handlePaste}
-              onChange={(e) => {
-                const val = e.target.value;
-                setInput(val);
-                if (val === '/') {
-                  setSuggestions(['/new', '/learn', '/help']);
-                  setShowSuggestions(true);
-                } else if (val.startsWith('/')) {
-                  const list = ['/new', '/learn', '/help'].filter(s => s.startsWith(val));
-                  setSuggestions(list);
-                  setShowSuggestions(list.length > 0);
-                } else {
-                  setShowSuggestions(false);
-                }
-                
-                // Auto-resize textarea
-                e.target.style.height = 'auto';
-                e.target.style.height = e.target.scrollHeight + 'px';
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  if (input.trim() || selectedImages.length > 0) {
-                    handleSubmit(e as any);
-                  }
-                }
-              }}
-              placeholder={
-                isConfiguringKey === 'gemini' ? "Enter Gemini API Key..." :
-                isConfiguringKey === 'perplexity' ? "Enter Perplexity API Key..." :
-                isConfiguringKey === 'tavily' ? "Enter Tavily API Key..." :
-                isConfiguringKey === 'telegram' ? "Enter Telegram Bot Token..." :
-                "Type / for commands, or ask me anything..."
-              }
-            />
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleImageUpload} 
-                style={{ display: 'none' }} 
-                accept="image/*" 
-                multiple
-              />
-              <button 
-                type="button" 
-                onClick={() => fileInputRef.current?.click()}
-                style={{ background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer', color: '#64748b' }}
-                title="Upload Images"
-              >
-                <ImageIcon size={20} />
-              </button>
-              <button type="submit" disabled={!input.trim() && selectedImages.length === 0}>
-                <Send size={18} />
-              </button>
-            </div>
-          </form>
-          {selectedImages.length > 0 && (
-            <div className="image-previews" style={{ display: 'flex', gap: '0.5rem', padding: '0.5rem 1rem', overflowX: 'auto' }}>
-              {selectedImages.map((img, idx) => (
-                <div key={idx} style={{ position: 'relative', width: '60px', height: '60px', borderRadius: '4px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-                  <img src={img} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  <button 
-                    onClick={() => removeImage(idx)}
-                    style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(0,0,0,0.5)', color: 'white', border: 'none', borderRadius: '50%', width: '16px', height: '16px', fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                  >
-                    <X size={10} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-        </div>
+        <InputArea
+          isDragging={isDragging}
+          handleDragOver={handleDragOver}
+          handleDragLeave={handleDragLeave}
+          handleDrop={handleDrop}
+          showSuggestions={showSuggestions}
+          suggestions={suggestions}
+          handleSuggestionClick={handleSuggestionClick}
+          handleSubmit={handleSubmit}
+          toggleRecording={toggleRecording}
+          isRecording={isRecording}
+          textareaRef={textareaRef}
+          input={input}
+          setInput={setInput}
+          setShowSuggestions={setShowSuggestions}
+          setSuggestions={setSuggestions}
+          handlePaste={handlePaste}
+          isConfiguringKey={isConfiguringKey}
+          fileInputRef={fileInputRef}
+          handleImageUpload={handleImageUpload}
+          activeAgents={activeAgents}
+          handleStop={handleStop}
+          selectedImages={selectedImages}
+          removeImage={removeImage}
+          currentContextTokens={currentContextTokens}
+          logs={logs}
+        />
       </main>
 
-      {/* Log Explorer Sidebar */}
       {showLogs && (
-        <aside className="log-sidebar" style={{ width: '350px', borderLeft: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
-          <div className="log-header" style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white' }}>
-            <h2 style={{ fontSize: '1rem', fontWeight: 600 }}>Log Explorer</h2>
-            <button onClick={() => setLogs([])} style={{ fontSize: '0.8rem', cursor: 'pointer', background: 'none', border: 'none', color: '#64748b' }}>Clear</button>
-          </div>
-          <div className="log-list" style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {logs.map(log => (
-              <div key={log.id} style={{ fontSize: '0.8rem', padding: '0.5rem', background: 'white', borderRadius: '4px', borderLeft: `3px solid ${log.level === 'error' ? '#ef4444' : log.level === 'warning' ? '#f59e0b' : '#3b82f6'}` }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem', color: '#64748b', fontSize: '0.7rem' }}>
-                  <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
-                  <span style={{ fontWeight: 600 }}>{log.type}</span>
-                </div>
-                <div style={{ color: '#334155' }}>{log.message}</div>
-                {log.data && (
-                  <pre style={{ marginTop: '0.5rem', padding: '0.5rem', background: '#f1f5f9', borderRadius: '4px', overflowX: 'auto', fontSize: '0.7rem' }}>
-                    {JSON.stringify(log.data, null, 2)}
-                  </pre>
-                )}
-              </div>
-            ))}
-            <div ref={logsEndRef} />
-          </div>
-        </aside>
+        <LogSidebar
+          logs={logs}
+          setLogs={setLogs}
+          logsEndRef={logsEndRef}
+        />
       )}
 
-      {/* Knowledge Explorer Sidebar */}
       {showFiles && (
-        <aside className="log-sidebar" style={{ width: '400px', borderLeft: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
-          <div className="log-header" style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white' }}>
-            <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Brain size={18} color="#3b82f6" /> Knowledge Base
-            </h2>
-            <button onClick={fetchFiles} style={{ fontSize: '0.8rem', cursor: 'pointer', background: 'none', border: 'none', color: '#3b82f6' }}>Refresh</button>
-          </div>
-          <div className="file-explorer-content" style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
-            {Object.entries(files).map(([dir, fileList]) => (
-              <div key={dir} style={{ marginBottom: '1rem' }}>
-                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#94a3b8', fontWeight: 600, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                  <Folder size={12} /> {dir}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                  {fileList.map(file => (
-                    <button 
-                      key={file} 
-                      onClick={() => readFile(dir, file)}
-                      style={{ 
-                        textAlign: 'left', 
-                        padding: '0.4rem 0.6rem', 
-                        fontSize: '0.8rem', 
-                        background: selectedFile?.file === file ? '#eff6ff' : 'white', 
-                        border: '1px solid', 
-                        borderColor: selectedFile?.file === file ? '#3b82f6' : '#e2e8f0', 
-                        borderRadius: '4px', 
-                        cursor: 'pointer',
-                        color: selectedFile?.file === file ? '#1e40af' : '#334155',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem'
-                      }}
-                    >
-                      <FileText size={14} color={selectedFile?.file === file ? '#3b82f6' : '#94a3b8'} />
-                      {file}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-          {selectedFile && (
-            <div className="file-content-preview" style={{ height: '40%', borderTop: '2px solid #e2e8f0', background: 'white', display: 'flex', flexDirection: 'column' }}>
-              <div style={{ padding: '0.5rem 1rem', background: '#f1f5f9', fontSize: '0.75rem', fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>{selectedFile.dir} / {selectedFile.file}</span>
-                <button onClick={() => setSelectedFile(null)}><X size={14} /></button>
-              </div>
-              <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', fontSize: '0.85rem' }}>
-                {selectedFile.file.endsWith('.md') ? (
-                  <ReactMarkdown>{selectedFile.content}</ReactMarkdown>
-                ) : (
-                  <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{selectedFile.content}</pre>
-                )}
-              </div>
-            </div>
-          )}
-        </aside>
+        <KnowledgeExplorer
+          files={files}
+          fetchFiles={fetchFiles}
+          readFile={readFile}
+          selectedFile={selectedFile}
+          setSelectedFile={setSelectedFile}
+        />
       )}
-      {/* Agent Creation Modal */}
+
       {showCreateModal && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div className="modal-header">
-              <h2>Create New Agent</h2>
-              <button onClick={() => setShowCreateModal(false)}><X size={20} /></button>
-            </div>
-            
-            {/* AI Generation Section */}
-            <div className="ai-gen-section">
-              <label>Describe your Agent Idea</label>
-              <div className="ai-gen-input">
-                <textarea 
-                  placeholder="e.g. A senior dev that specializes in Supabase and can help me with database migrations..."
-                  value={agentIdea}
-                  onChange={e => setAgentIdea(e.target.value)}
-                  rows={2}
-                />
-                <button 
-                  onClick={() => {
-                    if (!agentIdea.trim()) return;
-                    setIsGeneratingAgent(true);
-                    socket?.emit('generate_agent_from_prompt', { prompt: agentIdea });
-                  }}
-                  disabled={isGeneratingAgent}
-                  className="ai-gen-btn"
-                >
-                  {isGeneratingAgent ? 'Generating...' : 'Magic Define'}
-                </button>
-              </div>
-              <div className="ai-gen-hint">The AI will populate the fields below based on your description.</div>
-            </div>
-
-            <div className="divider"><span>OR DEFINE MANUALLY</span></div>
-
-            <form onSubmit={handleCreateAgent}>
-              <div className="form-group">
-                <label>Agent Name</label>
-                <input 
-                  autoFocus
-                  placeholder="e.g. Code Reviewer" 
-                  value={newAgent.name} 
-                  onChange={e => setNewAgent({...newAgent, name: e.target.value})}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Role</label>
-                <input 
-                  placeholder="e.g. Senior Backend Engineer" 
-                  value={newAgent.role} 
-                  onChange={e => setNewAgent({...newAgent, role: e.target.value})}
-                />
-              </div>
-              <div className="form-group">
-                <label>Primary Task</label>
-                <textarea 
-                  placeholder="What should this agent do?" 
-                  rows={3}
-                  value={newAgent.task}
-                  onChange={e => setNewAgent({...newAgent, task: e.target.value})}
-                  required
-                />
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label><Shield size={14} /> Scope</label>
-                  <input 
-                    placeholder="e.g. Only backend/ folder" 
-                    value={newAgent.scope} 
-                    onChange={e => setNewAgent({...newAgent, scope: e.target.value})}
-                  />
-                </div>
-                <div className="form-group">
-                  <label><Brain size={14} /> Initial Memory</label>
-                  <input 
-                    placeholder="e.g. Context about PR #42" 
-                    value={newAgent.memory} 
-                    onChange={e => setNewAgent({...newAgent, memory: e.target.value})}
-                  />
-                </div>
-              </div>
-              <button type="submit" className="submit-btn">Initialize Agent</button>
-            </form>
-          </div>
-        </div>
+        <AgentCreateModal
+          setShowCreateModal={setShowCreateModal}
+          agentIdea={agentIdea}
+          setAgentIdea={setAgentIdea}
+          isGeneratingAgent={isGeneratingAgent}
+          setIsGeneratingAgent={setIsGeneratingAgent}
+          socket={socket}
+          newAgent={newAgent}
+          setNewAgent={setNewAgent}
+          handleCreateAgent={handleCreateAgent}
+        />
       )}
 
-      {/* Agent Inspector Modal */}
       {showInspector && selectedAgentDetails && (
-        <div className="modal-overlay">
-          <div className="modal-content inspector-modal">
-            <div className="modal-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Bot size={24} color="#3b82f6" />
-                <div>
-                  <h2 style={{ margin: 0 }}>Agent Inspector</h2>
-                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>{selectedAgentDetails.agentId}</p>
-                </div>
-              </div>
-              <button onClick={() => setShowInspector(false)}><X size={20} /></button>
-            </div>
-            
-            <div className="inspector-tabs">
-              <button 
-                className={inspectorTab === 'rules' ? 'active' : ''} 
-                onClick={() => setInspectorTab('rules')}
-              >
-                <Shield size={14} /> Rules
-              </button>
-              <button 
-                className={inspectorTab === 'skills' ? 'active' : ''} 
-                onClick={() => setInspectorTab('skills')}
-              >
-                <Terminal size={14} /> Skills
-              </button>
-              <button 
-                className={inspectorTab === 'memory' ? 'active' : ''} 
-                onClick={() => setInspectorTab('memory')}
-              >
-                <Brain size={14} /> Memory
-              </button>
-            </div>
+        <AgentInspectorModal
+          selectedAgentDetails={selectedAgentDetails}
+          setShowInspector={setShowInspector}
+          inspectorTab={inspectorTab}
+          setInspectorTab={setInspectorTab}
+        />
+      )}
 
-            <div className="inspector-body">
-              {inspectorTab === 'rules' && (
-                <div className="inspector-pane">
-                  <ReactMarkdown>{selectedAgentDetails.rules}</ReactMarkdown>
-                </div>
-              )}
-              {inspectorTab === 'skills' && (
-                <div className="inspector-pane">
-                  <div className="skills-grid">
-                    {selectedAgentDetails.skills.map((skill: any, idx: number) => (
-                      <div key={idx} className="skill-item">
-                        <div className="skill-name">{skill.name}</div>
-                        <div className="skill-desc">{skill.description}</div>
-                        {skill.parameters?.properties && (
-                          <div className="skill-params">
-                            {Object.keys(skill.parameters.properties).map(p => (
-                              <span key={p} className="param-tag">{p}</span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {inspectorTab === 'memory' && (
-                <div className="inspector-pane">
-                  <div className="memory-section">
-                    <h3>Active Task</h3>
-                    <div className="task-preview">
-                      <ReactMarkdown>{selectedAgentDetails.memory.task}</ReactMarkdown>
-                    </div>
-                  </div>
-                  <div className="memory-section" style={{ marginTop: '1.5rem' }}>
-                    <h3>Long-term Knowledge</h3>
-                    <div className="knowledge-base">
-                      <ReactMarkdown>{selectedAgentDetails.memory.longTerm}</ReactMarkdown>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+      {showUsageDashboard && (
+        <UsageDashboard
+          detailedStats={detailedStats}
+          systemStats={systemStats}
+          onClose={() => setShowUsageDashboard(false)}
+        />
       )}
-      {enlargedImage && (
-        <div className="image-modal-overlay" onClick={() => setEnlargedImage(null)}>
-          <img src={enlargedImage} className="image-modal-content" alt="Enlarged view" />
-          <button className="close-modal-btn" onClick={() => setEnlargedImage(null)}>
-            <X size={24} />
-          </button>
-        </div>
-      )}
+
+      <ImageModal
+        enlargedImage={enlargedImage}
+        setEnlargedImage={setEnlargedImage}
+      />
     </div>
   );
 }
