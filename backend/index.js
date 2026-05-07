@@ -231,6 +231,10 @@ function sendLog(socket, agentId, type, message, data = null, level = 'info') {
   io.emit('agent_log', event);
   // Persist to rolling trace file for offline inspection
   try { fs.appendFileSync(traceLogPath, JSON.stringify(event) + '\n'); } catch (_) {}
+  
+  if (agentInstances.has(agentId)) {
+    agentInstances.get(agentId).lastActivity = Date.now();
+  }
 }
 
 // Initialize Vertex AI
@@ -1078,6 +1082,7 @@ class Agent {
       if (!fs.existsSync(path.join(process.cwd(), 'tasks'))) fs.mkdirSync(path.join(process.cwd(), 'tasks'));
       fs.writeFileSync(taskPath, `# Initial Task\n${initialTask}`);
     }
+    this.lastActivity = Date.now();
     agentInstances.set(this.id, this);
   }
 
@@ -1587,8 +1592,9 @@ ${taskContent}
             const progress = Math.min(Math.floor((turnCount / 5) * 100), 95);
             socket.emit('task_progress', { agentId: this.id, progress });
 
+            const timeoutMs = call.name === 'browser_action' ? 180000 : 90000;
             const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error(`Tool execution timed out after 300s: ${call.name}`)), 300000)
+              setTimeout(() => reject(new Error(`Tool execution timed out after ${timeoutMs/1000}s: ${call.name}`)), timeoutMs)
             );
 
             let result;
@@ -1600,6 +1606,10 @@ ${taskContent}
               ]);
             } catch (err) {
               result = { error: err.message };
+              if (err.message.includes('timed out')) {
+                sendLog(socket, this.id, 'warning', `⚠️ ${call.name} is taking too long. Aborting turn.`, { tool: call.name }, 'warning');
+                this.shouldStop = true; // Auto-stop if tool times out to prevent "hanging"
+              }
             }
             const _pmDuration = Date.now() - _pmT0;
 
@@ -1733,6 +1743,21 @@ setInterval(() => {
   };
   io.emit('system_heartbeat', stats);
 }, 5000);
+
+// Global Watchdog to prevent stuck agents
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, agent] of agentInstances) {
+    if (agent.processing && (now - agent.lastActivity > 120000)) {
+      console.warn(`[Watchdog] Agent ${id} seems stuck (no activity for 120s). Force aborting.`);
+      sendLog(null, id, 'error', '⚠️ WATCHDOG: Agent stalled for >120s. Forcefully resetting...', null, 'error');
+      agent.stop();
+      agent.processing = false;
+      if (activeAgents.has(id)) activeAgents.get(id).status = 'idle';
+      io.emit('agent_status', { agentId: id, status: 'idle', message: 'Stalled - Reset by Watchdog' });
+    }
+  }
+}, 30000);
 
 async function summarizeAndPersist(socket) {
   if (socket) sendLog(socket, 'orchestrator', 'system', 'Analyzing session for long-term memory extraction...');

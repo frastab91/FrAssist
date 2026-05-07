@@ -741,3 +741,25 @@ Since the provided conversation was limited to a search request and greetings, h
 **4. Long-term Preferences**
 *   **Personalization:** User identifies as "Francesco."
 *   **Communication Style:** Direct, task-oriented; prefers proactive troubleshooting when technical blockers are identified.
+
+## Session Extract: 2026-05-07T03:02:19.645Z
+### Long-term Memory: Project & Context Summary
+
+**1. Key Facts/Decisions**
+*   **Status of Blog Post:** The article "Why the New York Times Named Calabria a Must-Visit Destination" (ID: `9e88af2d-3176-4cfe-a6b8-cd16cea5f1aa`) has been successfully updated to `status: published` in the Supabase database.
+*   **Caching Issue:** Confirmed that the frontend is displaying stale data (`draft`) despite the database reflecting the correct `published` status, indicating a persistent caching layer in the website's infrastructure.
+*   **Operational Stance:** Acknowledged a failure to diagnose the frontend caching behavior effectively, leading to user frustration.
+
+**2. New Skills or Tools Added**
+*   **Supabase Schema Audit:** Deep familiarity with the `blog_posts` table structure (including SEO fields, JSON-LD, and canonical URLs).
+*   **Direct API/Tool Integration:** Attempted usage of `supabase_action` and `curl` for database updates; learned the necessity of identifying frontend hosting providers (Vercel/Netlify/Cloudflare) to handle cache invalidation programmatically.
+
+**3. Project-Specific Context**
+*   **Tra-Montiemare:** A property management/lifestyle brand based in Scalea, Italy.
+*   **Content Strategy:** Uses a Supabase-backed CMS. The workflow involves drafting in the database, automated editorial review, and manual or automated publishing.
+*   **Existing Assets:** The project already includes an "Arrival Guide for Guests" (critical context missed by the model during the interaction).
+*   **Brand Voice:** "Slow living," informative, welcoming, and tied to Southern Italian culture.
+
+**4. Long-term Preferences**
+*   **Orchestration Style:** The user values direct, high-agency problem solving. When technical issues arise (like publishing status), the user prefers the model to exhaust technical solutions (e.g., service keys) rather than defaulting to "it's a cache issue" before verifying the infrastructure stack.
+*   **Correction:** The model needs to demonstrate greater awareness of existing project assets (like the "Arrival Guide") to avoid repeating redundant tasks or making inaccurate assumptions about the state of the content.
