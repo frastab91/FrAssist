@@ -12,6 +12,7 @@ type SidebarProps = {
   socket: Socket | null;
   ollamaStatus: any;
   systemStats: SystemStats;
+  heartbeat: any;
   onUsageClick: () => void;
 };
 
@@ -24,6 +25,7 @@ export function Sidebar({
   socket,
   ollamaStatus,
   systemStats,
+  heartbeat,
   onUsageClick,
 }: SidebarProps) {
   const handleDeleteAgent = (e: React.MouseEvent, agentId: string) => {
@@ -106,6 +108,29 @@ export function Sidebar({
       </div>
 
       <div className="sidebar-footer">
+        {heartbeat && (
+          <div className="footer-card heartbeat">
+            <div className="card-header">
+              <span className="status-label">SYSTEM HEALTH</span>
+              <span className="live-dot pulse">●</span>
+            </div>
+            <div className="heartbeat-stats">
+              <div className="stat-mini">
+                <span className="mini-label">CPU</span>
+                <span className="mini-val">{heartbeat.cpu[0].toFixed(2)}</span>
+              </div>
+              <div className="stat-mini">
+                <span className="mini-label">MEM</span>
+                <span className="mini-val">{heartbeat.mem.usage.toFixed(0)}%</span>
+              </div>
+              <div className="stat-mini">
+                <span className="mini-label">UP</span>
+                <span className="mini-val">{(heartbeat.uptime / 3600).toFixed(1)}h</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {ollamaStatus && (
           <div className="footer-card ollama">
             <div className="card-header">

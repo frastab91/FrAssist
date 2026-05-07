@@ -16,6 +16,7 @@ import ollama from 'ollama';
 import { tavily } from '@tavily/core';
 import { Telegraf } from 'telegraf';
 import os from 'os';
+import cron from 'node-cron';
 
 let dbPromise = null;
 const dynamicSkills = new Map();
@@ -139,6 +140,17 @@ function initDb() {
       INSERT OR IGNORE INTO system_stats (key, value) VALUES ('total_output_tokens', 0);
       INSERT OR IGNORE INTO system_stats (key, value) VALUES ('total_requests', 0);
       UPDATE system_stats SET value = 0 WHERE value IS NULL;
+      
+      CREATE TABLE IF NOT EXISTS scheduled_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        cron TEXT,
+        task TEXT,
+        agentId TEXT,
+        status TEXT DEFAULT 'active',
+        lastRun DATETIME,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
     `);
     console.log('SQLite Database initialized');
     return db;
@@ -513,6 +525,21 @@ WORKFLOW: 1. open -> 2. snapshot (to read refs) -> 3. screenshot (to show user).
             required: ['action']
           }
         },
+        {
+          name: 'manage_jobs',
+          description: 'Schedule, list, or delete periodic tasks (cron jobs). Use this for tasks that need to run repeatedly (e.g., "every day at 8am").',
+          parameters: {
+            type: 'OBJECT',
+            properties: {
+              action: { type: 'STRING', enum: ['schedule', 'list', 'delete', 'toggle'], description: 'Action to perform' },
+              jobId: { type: 'INTEGER', description: 'ID of the job for delete/toggle' },
+              name: { type: 'STRING', description: 'Descriptive name for the job' },
+              cron: { type: 'STRING', description: 'Standard cron expression (e.g. "0 8 * * *" for 8am daily)' },
+              task: { type: 'STRING', description: 'The task description for the agent to execute when the job triggers' }
+            },
+            required: ['action']
+          }
+        },
         ...Array.from(dynamicSkills.values()).map(s => s.declaration)
       ]
     }
@@ -703,6 +730,59 @@ async function executeTool(call, socket) {
       if (action === 'list') {
         const workflows = await db.all('SELECT * FROM workflows ORDER BY timestamp DESC LIMIT 10');
         return { workflows: workflows.map(w => ({ ...w, data: JSON.parse(w.data) })) };
+      }
+    }
+
+    if (name === 'manage_jobs') {
+      const { action, jobId, name: jobName, cron: cronExpr, task } = args;
+      const db = await dbPromise;
+
+      if (action === 'schedule') {
+        if (!cronExpr || !task) return { error: 'cron and task are required for scheduling' };
+        if (!cron.validate(cronExpr)) return { error: 'Invalid cron expression' };
+
+        const result = await db.run(
+          'INSERT INTO scheduled_jobs (name, cron, task, agentId) VALUES (?, ?, ?, ?)',
+          [jobName || 'Unnamed Job', cronExpr, task, 'orchestrator']
+        );
+        
+        const newJobId = result.lastID;
+        scheduleCronJob(newJobId, cronExpr, task, jobName);
+        
+        return { status: 'Job scheduled successfully', jobId: newJobId };
+      }
+
+      if (action === 'list') {
+        const jobs = await db.all('SELECT * FROM scheduled_jobs');
+        return { jobs };
+      }
+
+      if (action === 'delete') {
+        if (!jobId) return { error: 'jobId is required for delete' };
+        if (scheduledCronTasks.has(jobId)) {
+          scheduledCronTasks.get(jobId).stop();
+          scheduledCronTasks.delete(jobId);
+        }
+        await db.run('DELETE FROM scheduled_jobs WHERE id = ?', [jobId]);
+        return { status: 'Job deleted' };
+      }
+
+      if (action === 'toggle') {
+        if (!jobId) return { error: 'jobId is required for toggle' };
+        const job = await db.get('SELECT * FROM scheduled_jobs WHERE id = ?', [jobId]);
+        if (!job) return { error: 'Job not found' };
+        
+        const newStatus = job.status === 'active' ? 'paused' : 'active';
+        await db.run('UPDATE scheduled_jobs SET status = ? WHERE id = ?', [newStatus, jobId]);
+        
+        if (newStatus === 'paused' && scheduledCronTasks.has(jobId)) {
+          scheduledCronTasks.get(jobId).stop();
+          scheduledCronTasks.delete(jobId);
+        } else if (newStatus === 'active') {
+          scheduleCronJob(jobId, job.cron, job.task, job.name);
+        }
+        
+        return { status: `Job ${newStatus}`, jobId };
       }
     }
 
@@ -1609,6 +1689,50 @@ ${taskContent}
 
 const orchestrator = new Agent('orchestrator', path.join(process.cwd(), 'agents', 'orchestrator', 'system.md'));
 agentInstances.set('orchestrator', orchestrator);
+
+const scheduledCronTasks = new Map();
+
+function scheduleCronJob(jobId, cronExpr, task, jobName) {
+  const taskObj = cron.schedule(cronExpr, async () => {
+    console.log(`[Job ${jobId}] Running: ${jobName || 'Unnamed'}`);
+    const db = await dbPromise;
+    await db.run('UPDATE scheduled_jobs SET lastRun = ? WHERE id = ?', [new Date().toISOString(), jobId]);
+    
+    const mockSocket = {
+      emit: (event, data) => {
+        io.emit(event, data); 
+      }
+    };
+    
+    sendLog(mockSocket, 'system', 'job_start', `Running scheduled job: ${jobName || jobId}`);
+    await orchestrator.processMessage(`[SCHEDULED JOB] ${task}`, mockSocket);
+  });
+  scheduledCronTasks.set(jobId, taskObj);
+}
+
+async function loadScheduledJobs() {
+  const db = await dbPromise;
+  const jobs = await db.all('SELECT * FROM scheduled_jobs WHERE status = "active"');
+  jobs.forEach(job => {
+    scheduleCronJob(job.id, job.cron, job.task, job.name);
+  });
+  console.log(`Restored ${jobs.length} scheduled jobs`);
+}
+loadScheduledJobs();
+
+setInterval(() => {
+  const stats = {
+    cpu: os.loadavg(),
+    mem: {
+      free: os.freemem(),
+      total: os.totalmem(),
+      usage: (1 - (os.freemem() / os.totalmem())) * 100
+    },
+    uptime: os.uptime(),
+    timestamp: new Date().toISOString()
+  };
+  io.emit('system_heartbeat', stats);
+}, 5000);
 
 async function summarizeAndPersist(socket) {
   if (socket) sendLog(socket, 'orchestrator', 'system', 'Analyzing session for long-term memory extraction...');

@@ -1104,3 +1104,58 @@ body {
   from { transform: scale(0.9); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
 }
+
+/* Heartbeat & System Health Styles */
+.footer-card.heartbeat {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  border: 1px solid #334155;
+  color: #f8fafc;
+}
+
+.heartbeat .status-label {
+  color: #94a3b8;
+}
+
+.heartbeat-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.stat-mini {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.mini-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.mini-val {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.live-dot.pulse {
+  color: #22c55e;
+  text-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+  animation: heartbeat-pulse 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+@keyframes heartbeat-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+@keyframes pulse {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}

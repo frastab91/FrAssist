@@ -130,6 +130,7 @@ export default function App() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [systemStats, setSystemStats] = useState({ total_input_tokens: 0, total_output_tokens: 0, total_requests: 0 });
+  const [heartbeat, setHeartbeat] = useState<any>(null);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -309,7 +310,11 @@ export default function App() {
         data: { tool: data.tool }
       }]);
     });
-
+    
+    newSocket.on('system_heartbeat', (data: any) => {
+      setHeartbeat(data);
+    });
+    
     newSocket.on('agent_details', (data: AgentDetails) => {
       setSelectedAgentDetails(data);
       setIsFetchingDetails(false);
@@ -615,6 +620,7 @@ export default function App() {
         socket={socket}
         ollamaStatus={ollamaStatus}
         systemStats={systemStats}
+        heartbeat={heartbeat}
         onUsageClick={() => {
           fetchDetailedStats();
           setShowUsageDashboard(true);

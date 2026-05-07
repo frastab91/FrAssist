@@ -1,0 +1,2 @@
+# Task for editor
+Review the blog post draft titled 'Why the New York Times Named Calabria a Must-Visit Destination: Discover Southern Italy’s Hidden Gem' (id: 9e88af2d-3176-4cfe-a6b8-cd16cea5f1aa). Check for completeness, quality, and SEO readiness. If it's ready, finalize the content, set status to 'published', and set 'published_at' to today's date (2026-05-07).

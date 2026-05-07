@@ -176,15 +176,29 @@ function TypingBubble({ agent, currentStatus, logs, handleStop }: { agent: Agent
   const lastLog = logs.filter(l => l.agentId === agent.id || l.agentId === 'system').slice(-1)[0];
   const displayStatus = agent.id === 'orchestrator' ? currentStatus || 'Thinking...' : 'Working...';
 
+  // Stuck detection levels
+  const isDelayed = seconds > 30;
+  const isStuck = seconds > 60;
+  const isCritical = seconds > 90;
+
+  const getBubbleStyle = () => {
+    if (isCritical) return "border-red-200 bg-red-50/50 shadow-red-100";
+    if (isStuck) return "border-amber-200 bg-amber-50/50 shadow-amber-100";
+    if (isDelayed) return "border-blue-200 bg-blue-50/50 shadow-blue-100";
+    return "border-blue-100 bg-blue-50/30";
+  };
+
   return (
     <div className="message-row assistant mb-4">
-      <div className="message assistant shadow-sm border-blue-100 bg-blue-50/30">
+      <div className={`message assistant shadow-sm transition-all duration-500 ${getBubbleStyle()}`}>
         <div className="message-header">
-          <span className="agent-icon animate-pulse text-blue-500">
+          <span className={`agent-icon ${seconds % 2 === 0 ? 'animate-pulse' : ''} ${isCritical ? 'text-red-500' : isStuck ? 'text-amber-500' : 'text-blue-500'}`}>
             <Bot size={14} />
           </span>
-          <span className="agent-name text-blue-700 font-bold">{agent.name}</span>
-          <span className="ml-auto text-[10px] font-mono text-blue-400 bg-blue-100/50 px-1.5 py-0.5 rounded-full">
+          <span className={`agent-name font-bold ${isCritical ? 'text-red-700' : isStuck ? 'text-amber-700' : 'text-blue-700'}`}>
+            {agent.name}
+          </span>
+          <span className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-full ${isCritical ? 'bg-red-100 text-red-500' : isStuck ? 'bg-amber-100 text-amber-500' : 'bg-blue-100 text-blue-400'}`}>
             {Math.floor(seconds / 60)}:{(seconds % 60).toString().padStart(2, '0')}
           </span>
         </div>
@@ -192,38 +206,65 @@ function TypingBubble({ agent, currentStatus, logs, handleStop }: { agent: Agent
         <div className="flex flex-col mt-1">
           <div className="flex items-center gap-3">
             <div className="flex gap-1.5">
-              <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-              <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-              <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+              <span className={`w-2 h-2 rounded-full animate-bounce ${isCritical ? 'bg-red-500' : isStuck ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ animationDelay: '0ms' }}></span>
+              <span className={`w-2 h-2 rounded-full animate-bounce ${isCritical ? 'bg-red-500' : isStuck ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ animationDelay: '150ms' }}></span>
+              <span className={`w-2 h-2 rounded-full animate-bounce ${isCritical ? 'bg-red-500' : isStuck ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ animationDelay: '300ms' }}></span>
             </div>
-            <span className="text-sm font-medium text-blue-800">
+            <span className={`text-sm font-medium ${isCritical ? 'text-red-800' : isStuck ? 'text-amber-800' : 'text-blue-800'}`}>
               {displayStatus}
             </span>
           </div>
           
           {lastLog && lastLog.message !== displayStatus && (
-            <div className="mt-2 p-2 bg-white/60 rounded border border-blue-100/50 flex flex-col gap-1">
-              <div className="flex items-center gap-1.5 text-[9px] uppercase tracking-wider font-bold text-blue-400">
+            <div className={`mt-2 p-2 bg-white/60 rounded border flex flex-col gap-1 ${isCritical ? 'border-red-100' : isStuck ? 'border-amber-100' : 'border-blue-100/50'}`}>
+              <div className={`flex items-center gap-1.5 text-[9px] uppercase tracking-wider font-bold ${isCritical ? 'text-red-400' : isStuck ? 'text-amber-400' : 'text-blue-400'}`}>
                 <Terminal size={10} />
                 Latest Telemetry
               </div>
-              <div className="text-[11px] text-blue-600 font-mono leading-tight break-all">
+              <div className={`text-[11px] font-mono leading-tight break-all ${isCritical ? 'text-red-600' : isStuck ? 'text-amber-600' : 'text-blue-600'}`}>
                 {lastLog.message}
               </div>
             </div>
           )}
           
-          {seconds > 30 && (
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <div className="text-[10px] text-amber-600 italic animate-pulse flex items-center gap-1">
-                <span>⚠️ This step is taking longer than usual...</span>
+          {isDelayed && (
+            <div className={`mt-3 p-2 rounded-lg border flex flex-col gap-2 ${isCritical ? 'bg-red-100/50 border-red-200' : isStuck ? 'bg-amber-100/50 border-amber-200' : 'bg-blue-100/50 border-blue-200'}`}>
+              <div className="flex items-center justify-between gap-2">
+                <div className={`text-[10px] font-bold flex items-center gap-1 ${isCritical ? 'text-red-700' : isStuck ? 'text-amber-700' : 'text-blue-700'}`}>
+                  {isCritical ? (
+                    <>⚠️ SYSTEM UNRESPONSIVE</>
+                  ) : isStuck ? (
+                    <>⏳ STILL WORKING...</>
+                  ) : (
+                    <>ℹ️ TAKING LONGER THAN USUAL</>
+                  )}
+                </div>
+                <div className="flex gap-1">
+                  <button 
+                    onClick={handleStop}
+                    className={`text-[10px] px-2 py-1 rounded font-bold transition-all shadow-sm ${
+                      isCritical ? 'bg-red-600 text-white hover:bg-red-700' : 
+                      isStuck ? 'bg-amber-600 text-white hover:bg-amber-700' : 
+                      'bg-blue-600 text-white hover:bg-blue-700'
+                    }`}
+                  >
+                    {isCritical ? 'Force Abort' : 'Stop & Reset'}
+                  </button>
+                  {isCritical && (
+                    <button 
+                      onClick={() => window.location.reload()}
+                      className="text-[10px] bg-gray-800 text-white px-2 py-1 rounded font-bold hover:bg-black transition-all shadow-sm"
+                    >
+                      Hard Refresh
+                    </button>
+                  )}
+                </div>
               </div>
-              <button 
-                onClick={handleStop}
-                className="text-[10px] bg-amber-100 hover:bg-amber-200 text-amber-700 px-2 py-1 rounded font-bold transition-colors"
-              >
-                Stop & Reset
-              </button>
+              <p className={`text-[9px] leading-snug ${isCritical ? 'text-red-600' : isStuck ? 'text-amber-600' : 'text-blue-600'}`}>
+                {isCritical ? "The system appears to be stuck. You should Force Abort or Refresh the page." : 
+                 isStuck ? "This operation is taking a lot of time. You can wait or cancel it." : 
+                 "Still processing. Some tools (like browser automation) can take a minute."}
+              </p>
             </div>
           )}
         </div>
