@@ -611,3 +611,133 @@ Ecco il riepilogo delle informazioni da aggiungere alla "Long-term Memory":
 *   **Safety/Security:** High priority on "human-in-the-loop" verification for any financial transactions or booking flows.
 *   **Efficiency:** Preference for non-stop travel options.
 *   **Proactivity:** The assistant is expected to balance multiple life projects simultaneously rather than hyper-focusing on a single ongoing project.
+
+## Session Extract: 2026-05-06T02:02:08.992Z
+### Long-term Memory Summary: Project "Tra-Montiemare"
+
+**1. Key Facts/Decisions Made**
+*   **Active Request:** The user is looking for a specific terrace planter for vegetable gardening.
+*   **Specifications:** 
+    *   Maximum Length: 45 inches
+    *   Maximum Height: 30 inches
+    *   Maximum Width: 15 inches
+    *   Budget: Under $110 USD.
+*   **Status:** Previous attempts to provide working links and visual references were unsuccessful; the search remains open and pending.
+
+**2. New Skills or Tools Added**
+*   *None identified.* The conversation has focused on product search and retrieval attempts which require refinement in execution.
+
+**3. Project-Specific Context**
+*   **Project Name:** "Tra-Montiemare".
+*   **Domain:** Likely a residential or terrace gardening project, given the specific request for vegetable pots.
+*   **User Identity:** Francesco.
+
+**4. Long-term Preferences**
+*   **Communication Style:** The user prefers direct, task-oriented assistance in Italian, but is comfortable switching to English for specific technical queries.
+*   **Constraint Adherence:** Strict adherence to physical dimensions and budget caps is required for product recommendations.
+
+## Session Extract: 2026-05-06T02:18:29.222Z
+Since the provided conversation was limited to a search request and greetings, here is the summary of the actionable data:
+
+### **Long-Term Memory Summary**
+
+**1. Key Facts/Decisions**
+*   **Active Search:** User is currently looking for a terrace vegetable planter.
+*   **Constraints:** 
+    *   Maximum length: 40 inches.
+    *   Maximum height: 25 inches.
+    *   Budget: Under $150.
+
+**2. New Skills or Tools Added**
+*   None.
+
+**3. Project-Specific Context**
+*   **Project:** Terrace Gardening / Vegetable cultivation.
+*   **Requirement:** Identifying suitable planters that fit specific dimension and budget criteria for a balcony or terrace setup.
+
+**4. Long-term Preferences**
+*   Interest in gardening/agriculture (specifically container-based vegetable gardening).
+*   Preference for budget-conscious procurement (under $150).
+
+## Session Extract: 2026-05-06T02:21:21.803Z
+## Long-Term Memory Update
+
+**1. Key facts/decisions made:**
+*   **Search Request:** The user is looking for a terrace vegetable pot.
+*   **Specifications:** Maximum length of 40 inches; height of 25 inches.
+*   **Budget:** Under $150.
+
+**2. New skills or tools added:**
+*   N/A (Continued use of web browsing/search tools).
+
+**3. Project-specific context:**
+*   **Project Focus:** Vacation rental management in Scalea, Italy.
+*   **Current Task:** Sourcing terrace decor/gardening equipment for the Scalea property.
+
+**4. Long-term preferences:**
+*   **Budgeting:** Value-conscious; prefers products under specific price thresholds.
+*   **Style:** Functional, space-optimized decor suitable for terrace/balcony gardening.
+
+## Session Extract: 2026-05-06T02:33:28.569Z
+### Long-term Memory: Project Summary
+
+**1. Key Facts/Decisions Made**
+*   **Orchestration Capability Confirmed:** Established that I function as an "Orchestrator" capable of spawning specialized agents (Researcher, Growth Hacker, Developer) and managing persistent workflows.
+*   **Workflow Persistence:** Decisions and task states are managed via `manage_workflow` (using IDs for resuming) and persistent browser profiles (`--user-data-dir`), allowing for autonomous background execution without timeouts.
+*   **Project Initialization:** Officially added **Rally-NYC** to the active project list.
+*   **Rally-NYC Status:** Initial research into the NYC public tennis court system completed; Growth Hacker assessment suggests a "hyper-local crowd-reporting" strategy to solve current fragmentation/booking issues.
+
+**2. New Skills or Tools Added**
+*   **Agent Orchestration:** Deployed a multi-agent framework capable of passing data between specialized roles (Research -> Assessment).
+*   **Visual Generation:** Integrated image generation capabilities for conceptual analysis and data visualization.
+*   **Advanced Browser Automation:** Utilized persistent browser profiles to maintain session state and bypass standard web timeouts.
+
+**3. Project-Specific Context**
+*   **Tra-Montiemare (Scalea):** Ongoing vacation rental project (remains active).
+*   **Rally-NYC:** New project focused on the NYC tennis community. Pain point: Lack of a unified real-time dashboard for court availability. Strategy: Gamify status updates for specific parks (e.g., McCarren Park).
+*   **Media Analysis:** Performed a comparative analysis of *The New York Times* vs. *Financial Times*. Noted that *FT* access is currently hindered by anti-bot protections (Cloudflare).
+
+**4. Long-term Preferences**
+*   **Visual Documentation:** User prefers visual representations (images) over text-based markdown files for comparative analyses.
+*   **Task Management:** User expects atomic, agent-based delegation where tasks are handled autonomously in the background and presented with clear status updates.
+*   **Data Integrity:** User requires immediate cleanup of redundant or unwanted files (e.g., requested deletion of `analysis_nytvft.md` after an image was generated).
+
+## Session Extract: 2026-05-06T02:41:17.156Z
+### Long-term Memory: Project Summary
+
+**1. Key Facts/Decisions Made**
+*   **Identified Top 5 Global Media Outlets:** The New York Times, The Wall Street Journal, The Guardian, Financial Times, and Le Monde.
+*   **Clarified Media Metrics:** Established a distinction between "journalistic influence" (the chosen list) and "circulation volume" (e.g., Yomiuri Shimbun, Dainik Bhaskar).
+*   **Acknowledged Tool Limitations:** Mutually agreed that standard AI image generation models currently struggle with high-end typography, complex data layout, and text rendering, often resulting in poor-quality "ugly" visual output.
+*   **Decision on Methodology:** Shifted strategy from "AI-painting" to "Data-driven generation" (using code) or "External prompting" to achieve professional-grade results.
+
+**2. New Skills or Tools Added**
+*   **Strategic Visualization:** Adopted the practice of using Python-based rendering (`matplotlib`/`seaborn`) as a superior alternative to native AI image generators for data-heavy infographics.
+*   **Platform Awareness:** Clarified that internal chat environments often use standardized models and cannot dynamically "switch" to experimental backend codenames like "Nano Banana Pro" (Gemini 3 Pro Image) on demand.
+
+**3. Project-Specific Context**
+*   **Current Task:** Creating a comparative analysis infographic of the editorial focus, tone, and distinguishing characteristics of the world's top five newspapers for May 6, 2026.
+*   **Standard of Quality:** The user prioritizes clean, professional, and crisp visual communication over artistic or "AI-generated" aesthetics.
+
+**4. Long-term Preferences**
+*   **Preference for Utility over Artistry:** For data representation tasks, the user prefers high-precision, code-rendered charts or structural templates over generic, text-heavy AI image generations.
+*   **Transparency:** The user values honest assessments of model limitations and expects clear, actionable paths to professional results rather than persistent attempts with substandard tools.
+
+## Session Extract: 2026-05-07T02:44:12.414Z
+### Long-term Memory Summary: Francesco
+
+**1. Key Facts/Decisions Made**
+*   **Timezone:** User is operating in Eastern Daylight Time (EDT, UTC-4).
+*   **Status:** Confirmed active work on the **Rally NYC** project.
+*   **Technical Blocker:** Supabase database connection is currently failing due to a URL configuration issue.
+
+**2. New Skills or Tools Added**
+*   *None identified in this session.*
+
+**3. Project-Specific Context**
+*   **Tra-Montiemare:** A project based in Scalea (noted as an active area of interest/responsibility).
+*   **Rally NYC:** Current primary focus; requires immediate attention to database connectivity (Supabase) to proceed with user-related queries.
+
+**4. Long-term Preferences**
+*   **Personalization:** User identifies as "Francesco."
+*   **Communication Style:** Direct, task-oriented; prefers proactive troubleshooting when technical blockers are identified.

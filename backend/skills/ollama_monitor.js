@@ -40,30 +40,43 @@ export async function execute(args) {
     }
 
     // Run 'ollama ps' to get the running models
-    const { stdout } = await execPromise('ollama ps');
+    const { stdout: psOutput } = await execPromise('ollama ps');
+    const { stdout: listOutput } = await execPromise('ollama list');
     
-    // Parse the output (simple tabular format)
-    const lines = stdout.trim().split('\n');
-    if (lines.length <= 1) {
-      return { 
-        status: 'Active',
-        message: 'Ollama is running, but no models are currently loaded in memory.' 
-      };
+    // Parse the ps output
+    const psLines = psOutput.trim().split('\n');
+    let activeModels = [];
+    if (psLines.length > 1) {
+      const psHeaders = psLines[0].split(/\s{2,}/);
+      activeModels = psLines.slice(1).map(line => {
+        const parts = line.split(/\s{2,}/);
+        const modelInfo = {};
+        psHeaders.forEach((h, i) => {
+          modelInfo[h.toLowerCase().replace(' ', '_')] = parts[i];
+        });
+        return modelInfo;
+      });
     }
 
-    const headers = lines[0].split(/\s{2,}/);
-    const models = lines.slice(1).map(line => {
-      const parts = line.split(/\s{2,}/);
-      const modelInfo = {};
-      headers.forEach((h, i) => {
-        modelInfo[h.toLowerCase().replace(' ', '_')] = parts[i];
+    // Parse the list output
+    const listLines = listOutput.trim().split('\n');
+    let availableModels = [];
+    if (listLines.length > 1) {
+      const listHeaders = listLines[0].split(/\s{2,}/);
+      availableModels = listLines.slice(1).map(line => {
+        const parts = line.split(/\s{2,}/);
+        const modelInfo = {};
+        listHeaders.forEach((h, i) => {
+          modelInfo[h.toLowerCase().replace(' ', '_')] = parts[i];
+        });
+        return modelInfo;
       });
-      return modelInfo;
-    });
+    }
 
     return { 
       status: 'Active',
-      models: models 
+      models: activeModels,
+      availableModels: availableModels
     };
   } catch (error) {
     return { error: `Failed to monitor Ollama: ${error.message}` };

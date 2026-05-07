@@ -12,3 +12,8 @@
 
 ## User Preferences
 - **Agency**: High (Authorized to act directly on infrastructure/systems).
+
+## Storage & Assets
+- **Local Storage**: All generated images (from `generate_image`) and screenshots are saved LOCALLY at `/screenshots/`.
+- **Markdown Usage**: When referencing these images in markdown, ALWAYS use the relative path provided by the tool (e.g., `![alt](/screenshots/filename.png)`).
+- **CRITICAL**: Do NOT prepend Supabase URLs (e.g., `https://...supabase.co/storage/...`) to local screenshot paths. Supabase is used only for database tables, not for serving session-generated visual assets.

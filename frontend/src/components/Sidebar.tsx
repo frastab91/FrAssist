@@ -1,5 +1,5 @@
-import React from 'react';
-import { Plus, Bot, Brain } from 'lucide-react';
+import React, { useState } from 'react';
+import { Plus, Bot, Brain, Trash2, Settings, MessageSquare } from 'lucide-react';
 import type { Agent, SystemStats } from '../types';
 import { Socket } from 'socket.io-client';
 
@@ -26,96 +26,123 @@ export function Sidebar({
   systemStats,
   onUsageClick,
 }: SidebarProps) {
+  const handleDeleteAgent = (e: React.MouseEvent, agentId: string) => {
+    e.stopPropagation();
+    if (window.confirm(`Are you sure you want to delete ${agentId}?`)) {
+      socket?.emit('delete_agent', { agentId });
+      if (selectedAgentId === agentId) {
+        setSelectedAgentId(null);
+      }
+    }
+  };
+
+  const handleInspectAgent = (e: React.MouseEvent, agentId: string) => {
+    e.stopPropagation();
+    setSelectedAgentId(agentId);
+    setShowInspector(true);
+    socket?.emit('request_agent_details', { agentId });
+  };
+
   return (
     <aside className="sidebar">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-        <h2 style={{ margin: 0 }}>Agent Tracker</h2>
+      <div className="sidebar-header">
+        <div className="brand">
+          <Bot size={24} className="brand-icon" />
+          <h2>FrAssist</h2>
+        </div>
         <button 
           onClick={() => setShowCreateModal(true)}
-          className="add-agent-btn"
-          style={{ 
-            background: '#3b82f6', 
-            color: 'white', 
-            border: 'none', 
-            borderRadius: '50%', 
-            width: '28px', 
-            height: '28px', 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center',
-            cursor: 'pointer'
-          }}
+          className="add-btn"
+          title="Create New Agent"
         >
-          <Plus size={16} />
+          <Plus size={18} />
         </button>
       </div>
-      <div className="agent-list" style={{ flex: 1, overflowY: 'auto' }}>
-        {activeAgents.map((agent) => (
-          <div 
-            key={agent.id} 
-            className={`agent-card ${selectedAgentId === agent.id ? 'active' : ''}`}
-            onClick={() => {
-              setSelectedAgentId(agent.id);
-              setShowInspector(true);
-              socket?.emit('request_agent_details', { agentId: agent.id });
-            }}
-          >
-            <div className="agent-header">
-              <div className="agent-info">
-                <div className="agent-icon">{agent.icon}</div>
-                <div>
-                  <div className="agent-name">{agent.name}</div>
-                  <div className="agent-role">{agent.role}</div>
+
+      <div className="sidebar-section">
+        <h3 className="section-title">Active Agents</h3>
+        <div className="agent-menu">
+          {activeAgents.map((agent) => (
+            <div 
+              key={agent.id} 
+              className={`menu-item ${selectedAgentId === agent.id ? 'active' : ''}`}
+              onClick={() => {
+                setSelectedAgentId(agent.id);
+                // Optionally auto-inspect or just select
+              }}
+            >
+              <div className="item-main">
+                <div className="item-icon">
+                  {agent.id === 'orchestrator' ? <Bot size={16} /> : agent.icon}
+                  <span className={`status-dot ${agent.status}`}></span>
+                </div>
+                <div className="item-info">
+                  <span className="item-name">{agent.name}</span>
+                  <span className="item-role">{agent.role}</span>
                 </div>
               </div>
-              <div className={`status-indicator ${agent.status}`}></div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {ollamaStatus && (
-        <div className="ollama-monitor shadow-sm" style={{ margin: '1rem', padding: '0.75rem', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)' }}>
-          <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between' }}>
-            <span>Local LLM Status</span>
-            <span style={{ color: '#4ade80' }}>● Live</span>
-          </div>
-          {ollamaStatus.models?.map((m: any, i: number) => (
-            <div key={i} style={{ marginBottom: '0.5rem' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#f1f5f9' }}>{m.name}</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#94a3b8' }}>
-                <span>Size: {m.size}</span>
-                <span>Used: {m.size}</span>
+              
+              <div className="item-actions">
+                <button 
+                  className="action-btn" 
+                  onClick={(e) => handleInspectAgent(e, agent.id)}
+                  title="Agent Details"
+                >
+                  <Settings size={14} />
+                </button>
+                {agent.id !== 'orchestrator' && (
+                  <button 
+                    className="action-btn delete" 
+                    onClick={(e) => handleDeleteAgent(e, agent.id)}
+                    title="Delete Agent"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
               </div>
             </div>
-          )) || <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>No models active</div>}
+          ))}
         </div>
-      )}
+      </div>
 
-      <div 
-        className="system-usage shadow-sm" 
-        style={{ margin: '1rem', padding: '0.75rem', background: 'rgba(59, 130, 246, 0.05)', borderRadius: '12px', border: '1px solid rgba(59, 130, 246, 0.1)', cursor: 'pointer', transition: 'all 0.2s ease' }}
-        onClick={onUsageClick}
-        onMouseEnter={e => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)'}
-        onMouseLeave={e => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.05)'}
-      >
-        <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#3b82f6', fontWeight: 600, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Brain size={12} /> Cumulative Usage
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-          <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-            <div style={{ fontWeight: 600, color: '#334155' }}>{(systemStats.total_input_tokens / 1000).toFixed(1)}k</div>
-            In Tokens
+      <div className="sidebar-footer">
+        {ollamaStatus && (
+          <div className="footer-card ollama">
+            <div className="card-header">
+              <span className="status-label">LLM STATUS</span>
+              <span className="live-dot">●</span>
+            </div>
+            <div className="model-list">
+              {ollamaStatus.models?.map((m: any, i: number) => (
+                <div key={i} className="model-item">
+                  <span className="model-name">{m.name}</span>
+                  <span className="model-size">{m.size}</span>
+                </div>
+              )) || <span className="no-models">No active models</span>}
+            </div>
           </div>
-          <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-            <div style={{ fontWeight: 600, color: '#334155' }}>{(systemStats.total_output_tokens / 1000).toFixed(1)}k</div>
-            Out Tokens
+        )}
+
+        <div 
+          className="footer-card usage"
+          onClick={onUsageClick}
+        >
+          <div className="card-header">
+            <span className="usage-label"><Brain size={12} /> CUMULATIVE USAGE</span>
           </div>
-        </div>
-        <div style={{ marginTop: '0.5rem', fontSize: '0.65rem', color: '#94a3b8', textAlign: 'right' }}>
-          Total Requests: {systemStats.total_requests}
+          <div className="usage-grid">
+            <div className="usage-stat">
+              <span className="stat-val">{(systemStats.total_input_tokens / 1000).toFixed(1)}k</span>
+              <span className="stat-label">In</span>
+            </div>
+            <div className="usage-stat">
+              <span className="stat-val">{(systemStats.total_output_tokens / 1000).toFixed(1)}k</span>
+              <span className="stat-label">Out</span>
+            </div>
+          </div>
         </div>
       </div>
     </aside>
   );
 }
+

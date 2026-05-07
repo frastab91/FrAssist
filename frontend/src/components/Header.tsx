@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings, ChevronDown, Folder, Terminal, Volume2, VolumeX, Globe } from 'lucide-react';
+import { Settings, ChevronDown, Folder, Terminal, Volume2, VolumeX, Globe, Play } from 'lucide-react';
 import type { KeyStatus } from '../types';
 import { Socket } from 'socket.io-client';
 
@@ -40,6 +40,7 @@ type HeaderProps = {
   setMessages: (messages: any) => void;
   setLogs: (logs: any) => void;
   socket: Socket | null;
+  ollamaStatus: any;
 };
 
 export function Header({
@@ -61,6 +62,7 @@ export function Header({
   setMessages,
   setLogs,
   socket,
+  ollamaStatus,
 }: HeaderProps) {
   return (
     <header className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.25rem', borderBottom: '1px solid #e2e8f0', background: 'white' }}>
@@ -73,12 +75,57 @@ export function Header({
           onChange={(e) => setAiProvider(e.target.value as any)}
           style={{ padding: '0.45rem 0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', fontSize: '0.85rem', cursor: 'pointer' }}
         >
-          <option value="gemini">Vertex Agents (Gemini 2.0)</option>
-          <option value="vertex_research">Deep Research Agent</option>
-          <option value="perplexity">Perplexity Sonar</option>
-          <option value="ollama">Ollama (gemma4:e2b)</option>
-          <option value="ollama_qwen">Ollama (qwen2.5-coder:14b)</option>
+          <optgroup label="Cloud Providers">
+            <option value="gemini">Vertex Agents (Gemini 2.0)</option>
+            <option value="vertex_research">Deep Research Agent</option>
+            <option value="perplexity">Perplexity Sonar</option>
+          </optgroup>
+          
+          <optgroup label="Local Models (Ollama)">
+            {ollamaStatus?.availableModels && ollamaStatus.availableModels.length > 0 ? (
+              ollamaStatus.availableModels.map((m: any) => (
+                <option key={m.name} value={`ollama:${m.name}`}>
+                  Ollama ({m.name})
+                </option>
+              ))
+            ) : (
+              <>
+                <option value="ollama">Ollama (gemma2:2b)</option>
+                <option value="ollama_qwen">Ollama (qwen2.5-coder:14b)</option>
+              </>
+            )}
+          </optgroup>
         </select>
+
+        {aiProvider.startsWith('ollama') && (
+          <button
+            onClick={() => {
+              const model = aiProvider.startsWith('ollama:') ? aiProvider.substring(7) : (aiProvider === 'ollama_qwen' ? 'qwen2.5-coder:14b' : 'gemma2:2b');
+              socket?.emit('run_ollama_model', { model });
+            }}
+            title="Run/Pull Model via CLI"
+            style={{ 
+              background: '#22c55e', color: 'white', border: 'none', 
+              borderRadius: '8px', padding: '0.45rem', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center'
+            }}
+          >
+            <Play size={14} fill="currentColor" />
+          </button>
+        )}
+
+        {ollamaStatus?.status === 'Offline' && (
+          <button
+            onClick={() => socket?.emit('run_ollama_model', { model: '--help' })} // A dummy command to trigger start logic if we had any, but for now just a helper
+            style={{ 
+              background: '#fee2e2', color: '#ef4444', border: '1px solid #fecaca', 
+              borderRadius: '8px', padding: '0.45rem 0.75rem', fontSize: '0.75rem', fontWeight: 600,
+              cursor: 'pointer'
+            }}
+          >
+            Ollama Offline
+          </button>
+        )}
 
         {/* Settings dropdown */}
         <div ref={settingsMenuRef} style={{ position: 'relative' }}>

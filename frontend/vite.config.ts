@@ -27,6 +27,17 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       strictPort: false,
+      watch: {
+        ignored: [
+          '**/backend/screenshots/**',
+          '**/backend/memory/**',
+          '**/backend/tasks/**',
+          '**/backend/audio/**',
+          '**/backend/data/**',
+          '**/backend/database.sqlite',
+          '**/backend/port.json'
+        ]
+      },
       proxy: {
         '/api': {
           target: `http://127.0.0.1:${backendPort}`,

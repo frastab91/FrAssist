@@ -502,7 +502,8 @@ export default function App() {
         socket.emit('user_message', { 
           content: input, 
           provider: aiProvider,
-          images: selectedImages 
+          images: selectedImages,
+          targetAgentId: selectedAgentId
         });
       }
     }
@@ -640,6 +641,7 @@ export default function App() {
           setMessages={setMessages}
           setLogs={setLogs}
           socket={socket}
+          ollamaStatus={ollamaStatus}
         />
 
         <ChatArea
@@ -678,6 +680,7 @@ export default function App() {
           removeImage={removeImage}
           currentContextTokens={currentContextTokens}
           logs={logs}
+          selectedAgentId={selectedAgentId}
         />
       </main>
 

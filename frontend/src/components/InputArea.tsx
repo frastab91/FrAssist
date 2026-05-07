@@ -1,5 +1,5 @@
 import React from 'react';
-import { Mic, Image as ImageIcon, Square, Send, X, Terminal } from 'lucide-react';
+import { Mic, Image as ImageIcon, Square, Send, X, Terminal, Bot } from 'lucide-react';
 import type { Agent } from '../types';
 
 type InputAreaProps = {
@@ -56,7 +56,10 @@ export function InputArea({
   removeImage,
   currentContextTokens,
   logs,
-}: InputAreaProps) {
+  selectedAgentId,
+}: InputAreaProps & { selectedAgentId: string | null }) {
+  const activeAgent = activeAgents.find(a => a.id === selectedAgentId);
+
   return (
     <div
       className="input-area"
@@ -65,6 +68,34 @@ export function InputArea({
       onDrop={handleDrop}
       style={{ position: 'relative' }}
     >
+      {selectedAgentId && selectedAgentId !== 'orchestrator' && activeAgent && (
+        <div style={{
+          position: 'absolute',
+          bottom: '100%',
+          left: '1.5rem',
+          marginBottom: '0.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          background: '#eff6ff',
+          padding: '0.25rem 0.75rem',
+          borderRadius: '20px',
+          border: '1px solid #dbeafe',
+          fontSize: '0.75rem',
+          color: '#2563eb',
+          fontWeight: 600,
+          boxShadow: 'var(--shadow-sm)',
+          animation: 'fadeIn 0.2s ease-out'
+        }}>
+          <Bot size={12} />
+          Messaging: {activeAgent.name}
+          <button 
+            onClick={() => {/* could add a clear selection here */}}
+            style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '0 2px' }}
+          >
+          </button>
+        </div>
+      )}
       {isDragging && (
         <div style={{
           position: 'absolute', inset: 0, zIndex: 50,

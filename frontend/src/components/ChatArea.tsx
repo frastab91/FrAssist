@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Bot, Terminal } from 'lucide-react';
 import type { Message, Agent, LogEvent } from '../types';
 
@@ -39,33 +40,89 @@ export function ChatArea({
             )}
             <div className="message-content">
               <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
                 components={{
                   a: ({ href, children }) => (
                     <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
                   ),
+                  img: ({ src, alt }) => {
+                    const isLocal = src?.startsWith('/screenshots') || src?.startsWith('/audio');
+                    // Fallback to relative if we can't determine the host, but usually handled by Vite proxy
+                    return (
+                      <span 
+                        className="markdown-image-wrapper" 
+                        style={{ 
+                          marginTop: '0.75rem', 
+                          borderRadius: '12px', 
+                          overflow: 'hidden', 
+                          border: '1px solid #e2e8f0',
+                          cursor: 'zoom-in',
+                          maxWidth: '100%',
+                          width: 'fit-content',
+                          display: 'block'
+                        }}
+                        onClick={() => setEnlargedImage(src || null)}
+                      >
+                        <img 
+                          src={src} 
+                          alt={alt} 
+                          style={{ 
+                            maxWidth: '100%', 
+                            maxHeight: '400px', 
+                            display: 'block',
+                            objectFit: 'contain'
+                          }} 
+                          onError={(e) => {
+                            console.error("Image failed to load:", src);
+                            // Optional: handle retry or fallback
+                          }}
+                        />
+                      </span>
+                    );
+                  },
+                  table: ({ children }) => (
+                    <div className="table-container" style={{ overflowX: 'auto', margin: '1rem 0' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                        {children}
+                      </table>
+                    </div>
+                  ),
+                  th: ({ children }) => (
+                    <th style={{ border: '1px solid #e2e8f0', padding: '8px', background: '#f8fafc', fontWeight: 'bold', textAlign: 'left' }}>
+                      {children}
+                    </th>
+                  ),
+                  td: ({ children }) => (
+                    <td style={{ border: '1px solid #e2e8f0', padding: '8px', textAlign: 'left' }}>
+                      {children}
+                    </td>
+                  )
                 }}
               >{msg.content}</ReactMarkdown>
             </div>
             {msg.images && msg.images.length > 0 && (
-              <div className="message-images" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+              <div className="message-images" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
                 {msg.images.map((img, i) => (
                   <div 
                     key={i} 
-                    className="message-image" 
+                    className="message-image-thumbnail" 
                     style={{ 
-                      width: '120px', 
-                      height: '120px', 
-                      borderRadius: '8px', 
+                      width: '140px', 
+                      height: '100px', 
+                      borderRadius: '10px', 
                       overflow: 'hidden', 
                       border: '1px solid #e2e8f0',
                       cursor: 'zoom-in',
-                      transition: 'transform 0.2s ease'
+                      transition: 'all 0.2s ease',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
                     }}
                     onClick={() => setEnlargedImage(img)}
+                    onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.02)')}
+                    onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
                   >
                     <img 
                       src={img} 
-                      alt="Uploaded content" 
+                      alt="Thumbnail" 
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
                     />
                   </div>
@@ -144,7 +201,7 @@ function TypingBubble({ agent, currentStatus, logs, handleStop }: { agent: Agent
             </span>
           </div>
           
-          {lastLog && (
+          {lastLog && lastLog.message !== displayStatus && (
             <div className="mt-2 p-2 bg-white/60 rounded border border-blue-100/50 flex flex-col gap-1">
               <div className="flex items-center gap-1.5 text-[9px] uppercase tracking-wider font-bold text-blue-400">
                 <Terminal size={10} />

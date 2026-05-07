@@ -20,6 +20,7 @@ export function UsageDashboard({ detailedStats, systemStats, onClose }: UsageDas
   }, [detailedStats]);
 
   const formatTokens = (tokens: number) => {
+    if (tokens === null || tokens === undefined) return '0';
     if (tokens >= 1000000) return (tokens / 1000000).toFixed(2) + 'M';
     if (tokens >= 1000) return (tokens / 1000).toFixed(1) + 'k';
     return tokens.toString();
@@ -28,7 +29,7 @@ export function UsageDashboard({ detailedStats, systemStats, onClose }: UsageDas
   const maxTokensPerDay = useMemo(() => {
     let max = 0;
     groupedByDate.forEach(([_, stats]) => {
-      const dayTotal = stats.reduce((sum, s) => sum + s.totalTokens, 0);
+      const dayTotal = stats.reduce((sum, s) => sum + (s.totalTokens || 0), 0);
       if (dayTotal > max) max = dayTotal;
     });
     return max || 1; // Prevent division by zero
@@ -73,7 +74,7 @@ export function UsageDashboard({ detailedStats, systemStats, onClose }: UsageDas
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#34d399', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase' }}>
                 <Database size={16} /> Total Requests
               </div>
-              <div style={{ fontSize: '2rem', fontWeight: 700 }}>{systemStats.total_requests}</div>
+              <div style={{ fontSize: '2rem', fontWeight: 700 }}>{systemStats.total_requests || 0}</div>
             </div>
           </div>
 
@@ -88,7 +89,7 @@ export function UsageDashboard({ detailedStats, systemStats, onClose }: UsageDas
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
               {groupedByDate.map(([date, stats]) => {
-                const dayTotal = stats.reduce((sum, s) => sum + s.totalTokens, 0);
+                const dayTotal = stats.reduce((sum, s) => sum + (s.totalTokens || 0), 0);
                 const dayWidth = (dayTotal / maxTokensPerDay) * 100;
                 
                 return (
@@ -108,7 +109,7 @@ export function UsageDashboard({ detailedStats, systemStats, onClose }: UsageDas
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.75rem' }}>
-                      {stats.sort((a, b) => b.totalTokens - a.totalTokens).map((stat, idx) => {
+                      {stats.sort((a, b) => (b.totalTokens || 0) - (a.totalTokens || 0)).map((stat, idx) => {
                         const width = (stat.totalTokens / dayTotal) * 100;
                         const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b'];
                         const color = colors[idx % colors.length];

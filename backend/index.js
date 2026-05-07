@@ -15,6 +15,7 @@ import { open } from 'sqlite';
 import ollama from 'ollama';
 import { tavily } from '@tavily/core';
 import { Telegraf } from 'telegraf';
+import os from 'os';
 
 let dbPromise = null;
 const dynamicSkills = new Map();
@@ -24,20 +25,20 @@ const activeAgents = new Map([['orchestrator', { id: 'orchestrator', name: 'Orch
 const agentInstances = new Map();
 
 function loadProjects() {
-  const projectsPath = path.join(process.cwd(), 'projects.json');
+  const projectsPath = path.join(process.cwd(), 'context', 'projects.json');
   if (fs.existsSync(projectsPath)) {
     projectData = JSON.parse(fs.readFileSync(projectsPath, 'utf8'));
     console.log(`Loaded ${projectData.projects.length} projects. Active: ${projectData.activeProjectId}`);
   }
 }
 function saveProjects() {
-  const projectsPath = path.join(process.cwd(), 'projects.json');
+  const projectsPath = path.join(process.cwd(), 'context', 'projects.json');
   fs.writeFileSync(projectsPath, JSON.stringify(projectData, null, 2));
 }
 loadProjects();
 
 // Watch for changes in projects.json
-fs.watch(path.join(process.cwd(), 'projects.json'), (eventType) => {
+fs.watch(path.join(process.cwd(), 'context', 'projects.json'), (eventType) => {
   if (eventType === 'change') {
     console.log('projects.json changed. Reloading projects...');
     loadProjects();
@@ -137,6 +138,7 @@ function initDb() {
       INSERT OR IGNORE INTO system_stats (key, value) VALUES ('total_input_tokens', 0);
       INSERT OR IGNORE INTO system_stats (key, value) VALUES ('total_output_tokens', 0);
       INSERT OR IGNORE INTO system_stats (key, value) VALUES ('total_requests', 0);
+      UPDATE system_stats SET value = 0 WHERE value IS NULL;
     `);
     console.log('SQLite Database initialized');
     return db;
@@ -646,7 +648,11 @@ async function executeTool(call, socket) {
         sendLog(socket, 'orchestrator', 'system', `No specialized agent for "${role}" found. Using default orchestrator prompt.`);
       }
 
-      const subAgent = new Agent(agentId, systemPromptPath);
+      let subAgent = agentInstances.get(agentId);
+      if (!subAgent) {
+        subAgent = new Agent(agentId, systemPromptPath);
+      }
+      
       const subTaskPath = path.join(process.cwd(), 'tasks', `${agentId}_task.md`);
       fs.writeFileSync(subTaskPath, `# Task for ${role}\n${task}`);
       
@@ -983,6 +989,7 @@ class Agent {
     this.historyLoaded = false;
     this.shouldStop = false;
     this.historyPromise = this.loadHistory();
+    this.abortController = null;
     if (initialMemory) {
       this.saveToHistory('user', [{ text: `Initial context: ${initialMemory}` }]);
     }
@@ -996,6 +1003,10 @@ class Agent {
 
   stop() {
     this.shouldStop = true;
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
     console.log(`Stopping agent ${this.id}`);
   }
 
@@ -1109,7 +1120,7 @@ class Agent {
       // Load Project Context
       let projectContext = '';
       try {
-        const projectContextPath = path.join(process.cwd(), `${projectData.activeProjectId}_context.md`);
+        const projectContextPath = path.join(process.cwd(), 'context', `${projectData.activeProjectId}_context.md`);
         if (fs.existsSync(projectContextPath)) {
           projectContext = `\n\n# ACTIVE PROJECT CONTEXT\n${fs.readFileSync(projectContextPath, 'utf8')}`;
         }
@@ -1121,11 +1132,25 @@ class Agent {
       let globalKnowledge = '';
       try {
         const knowledgeDir = path.join(process.cwd(), 'knowledge');
+        const contextDir = path.join(process.cwd(), 'context');
+        
+        let kFiles = [];
         if (fs.existsSync(knowledgeDir)) {
-          const kFiles = fs.readdirSync(knowledgeDir).filter(f => f.endsWith('.md'));
+          kFiles = kFiles.concat(fs.readdirSync(knowledgeDir).filter(f => f.endsWith('.md')).map(f => path.join(knowledgeDir, f)));
+        }
+        if (fs.existsSync(contextDir)) {
+          // Include all .md files in context that are NOT specific project contexts already loaded
+          const cFiles = fs.readdirSync(contextDir)
+            .filter(f => f.endsWith('.md') && !f.includes('_context.md'))
+            .map(f => path.join(contextDir, f));
+          kFiles = kFiles.concat(cFiles);
+        }
+
+        if (kFiles.length > 0) {
           globalKnowledge = '\n\n# GLOBAL KNOWLEDGE\n' + kFiles.map(f => {
-            const content = fs.readFileSync(path.join(knowledgeDir, f), 'utf8');
-            return `## ${f.replace('.md', '')}\n${content}`;
+            const content = fs.readFileSync(f, 'utf8');
+            const name = path.basename(f, '.md');
+            return `## ${name}\n${content}`;
           }).join('\n\n');
         }
       } catch (e) {
@@ -1138,7 +1163,27 @@ class Agent {
 
       // Dynamic context injected into the conversation turn instead of the system instruction.
       // Only date (not time) is included to avoid busting the cache on every request.
-      const dynamicContextText = `[Current Date: ${now} | Active Project: ${activeProject.title}]\n\n# Current Task\n${taskContent}`;
+      const dynamicContextText = `
+# SYSTEM CONTEXT (DO NOT OVERWRITE)
+Today is ${now}.
+Active Project: ${activeProject.title}
+${activeProject.description ? `Project Description: ${activeProject.description}` : ''}
+
+## SPECIALIZED AGENTS AVAILABLE:
+${agentsList}
+
+## CAPABILITIES & TOOLS:
+${toolsList}
+
+## CRITICAL RULES FOR ASSETS:
+1. All screenshots and generated images ARE SAVED LOCALLY in "/screenshots/".
+2. ALWAYS use the exact relative path returned by tools (e.g. "/screenshots/generated_123.png").
+3. DO NOT prepend Supabase URLs (e.g. "https://...supabase.co/...") to local paths. 
+4. Markdown tables MUST follow standard GFM format: Header, Newline, Separator (|---|), Newline, Rows.
+
+# Current Task
+${taskContent}
+`;
 
       // Build a contents array with the dynamic context prepended to the first user message.
       // This leaves this.history unmodified so the conversation stays clean.
@@ -1152,10 +1197,24 @@ class Agent {
         });
       };
 
+      this.shouldStop = false;
+      this.abortController = new AbortController();
+      const collectedImages = [];
+
       let turnCount = 0;
       while (turnCount < 10 && !this.shouldStop) {
         turnCount++;
-        if (socket) sendLog(socket, this.id, 'api_request', `Generating content (turn ${turnCount}) using Vertex AI`);
+        const providerNameMap = {
+          'gemini': 'Vertex AI',
+          'gemini_api': 'Gemini Studio',
+          'perplexity': 'Perplexity AI',
+          'ollama': 'Local Ollama',
+          'ollama_qwen': 'Local Ollama (Qwen)'
+        };
+        const displayName = providerNameMap[provider] || 
+          (provider.startsWith('ollama:') ? `Local Ollama (${provider.substring(7)})` : 
+          (provider.startsWith('ollama') ? 'Local Ollama' : provider));
+        if (socket) sendLog(socket, this.id, 'api_request', `Generating content (turn ${turnCount}) using ${displayName}`);
         
         let response;
         if (provider === 'gemini') {
@@ -1325,7 +1384,10 @@ class Agent {
             }
           };
         } else {
-          const ollamaModel = provider === 'ollama_qwen' ? 'qwen2.5-coder:14b' : 'gemma2:2b';
+          let ollamaModel = 'gemma2:2b'; // default
+          if (provider === 'ollama_qwen') ollamaModel = 'qwen2.5-coder:14b';
+          else if (provider.startsWith('ollama:')) ollamaModel = provider.substring(7);
+          
           const ollamaMessages = [
             { role: 'system', content: staticSystemPrompt + '\n\n' + dynamicContextText },
             ...this.history.map((h, hIdx) => {
@@ -1366,15 +1428,37 @@ class Agent {
             }
           }));
 
-          const res = await fetch('http://localhost:11434/api/chat', {
-            method: 'POST',
-            body: JSON.stringify({
-              model: ollamaModel,
-              messages: ollamaMessages,
-              tools: ollamaTools,
-              stream: false
-            })
-          });
+          if (socket) sendLog(socket, this.id, 'api_request', `Ollama Request: ${ollamaModel} (${ollamaMessages.length} messages)`);
+          
+          this.abortController = new AbortController();
+          const timeoutId = setTimeout(() => this.abortController?.abort(), 60000); // 60s timeout
+          
+          let res;
+          try {
+            res = await fetch('http://localhost:11434/api/chat', {
+              method: 'POST',
+              body: JSON.stringify({
+                model: ollamaModel,
+                messages: ollamaMessages,
+                tools: ollamaTools,
+                stream: false
+              }),
+              signal: this.abortController.signal
+            });
+          } catch (err) {
+            if (this.shouldStop || err.name === 'AbortError') {
+              throw new Error('Ollama request cancelled or timed out');
+            }
+            throw err;
+          } finally {
+            clearTimeout(timeoutId);
+          }
+
+          if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(`Ollama Error (${res.status}): ${errText}`);
+          }
+          
           const result = await res.json();
           response = {
             functionCalls: result.message?.tool_calls?.map(tc => ({
@@ -1454,7 +1538,10 @@ class Agent {
             }
 
             if (result.screenshotUrl) {
-              images.push(result.screenshotUrl);
+              collectedImages.push(result.screenshotUrl);
+            }
+            if (result.imageUrl) {
+              collectedImages.push(result.imageUrl);
             }
 
             functionResponses.push({
@@ -1482,15 +1569,15 @@ class Agent {
               agentId: this.id,
               role: 'assistant',
               content: response.text || '',
-              images: images, 
+              images: collectedImages, 
               usage: response.usage
             });
 
             // Update cumulative stats
             dbPromise.then(async db => {
-              await db.run('UPDATE system_stats SET value = value + ? WHERE key = ?', [response.usage.promptTokens, 'total_input_tokens']);
-              await db.run('UPDATE system_stats SET value = value + ? WHERE key = ?', [response.usage.candidatesTokens, 'total_output_tokens']);
-              await db.run('UPDATE system_stats SET value = value + 1 WHERE key = ?', ['total_requests']);
+              await db.run('UPDATE system_stats SET value = COALESCE(value, 0) + ? WHERE key = ?', [response.usage.promptTokens, 'total_input_tokens']);
+              await db.run('UPDATE system_stats SET value = COALESCE(value, 0) + ? WHERE key = ?', [response.usage.candidatesTokens, 'total_output_tokens']);
+              await db.run('UPDATE system_stats SET value = COALESCE(value, 0) + 1 WHERE key = ?', ['total_requests']);
               
               await db.run('INSERT INTO token_usage_log (agentId, promptTokens, candidatesTokens, totalTokens) VALUES (?, ?, ?, ?)', [
                 this.id, response.usage.promptTokens, response.usage.candidatesTokens, response.usage.totalTokens
@@ -1758,8 +1845,47 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Send to orchestrator
-    await orchestrator.processMessage(data.content, socket, data.provider, data.images);
+    // Determine target agent
+    const targetId = data.targetAgentId || 'orchestrator';
+    const targetAgent = agentInstances.get(targetId) || orchestrator;
+    
+    if (targetId !== 'orchestrator' && !agentInstances.has(targetId)) {
+      sendLog(socket, 'system', 'error', `Target agent ${targetId} not found. Routing to orchestrator.`);
+    }
+
+    await targetAgent.processMessage(data.content, socket, data.provider, data.images);
+  });
+
+  socket.on('run_ollama_model', async (data) => {
+    const { model } = data;
+    if (!model) return;
+    
+    sendLog(socket, 'system', 'info', `Executing 'ollama run ${model}'...`);
+    
+    // We run it in a separate process and don't wait for completion 
+    // because 'run' starts an interactive session or stays open.
+    // However, for the purpose of "ensuring it runs/is pulled", 
+    // a simple exec or spawn is enough.
+    const child = spawn('ollama', ['run', model]);
+    
+    child.stdout.on('data', (d) => {
+      console.log(`[Ollama Run] ${d}`);
+    });
+    
+    child.stderr.on('data', (d) => {
+      const msg = d.toString();
+      if (msg.includes('pulling')) {
+        sendLog(socket, 'system', 'info', msg.trim());
+      }
+    });
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        sendLog(socket, 'system', 'success', `Model ${model} is ready.`);
+      } else {
+        sendLog(socket, 'system', 'error', `Ollama run failed with code ${code}`);
+      }
+    });
   });
 
   socket.on('spawn_agent_manual', async (data) => {
@@ -1791,16 +1917,50 @@ io.on('connection', (socket) => {
 
   socket.on('stop_generation', () => {
     let stopped = 0;
+    console.log(`[System] Stop requested. Current agent instances: ${Array.from(agentInstances.keys()).join(', ')}`);
+    
     for (const [id, agent] of agentInstances.entries()) {
+      console.log(`[System] Checking agent ${id}: processing=${agent.processing}`);
       if (agent.processing) {
         agent.stop();
         stopped++;
-        activeAgents.get(id) && (activeAgents.get(id).status = 'idle');
-        io.emit('agent_status', { agentId: id, status: 'idle', message: '' });
+        // Sync both maps
+        const uiAgent = activeAgents.get(id);
+        if (uiAgent) uiAgent.status = 'idle';
+        io.emit('agent_status', { agentId: id, status: 'idle', message: 'Halted by user' });
       }
     }
-    sendLog(socket, 'orchestrator', 'system', `⏹ Generation stopped (${stopped} agent(s) halted)`, null, 'warning');
+    
+    // If we reported 0 but the UI thinks someone is working, force a sync
+    if (stopped === 0) {
+      for (const [id, agent] of activeAgents.entries()) {
+        if (agent.status === 'working') {
+          agent.status = 'idle';
+          io.emit('agent_status', { agentId: id, status: 'idle', message: 'Force reset' });
+        }
+      }
+    }
+
+    sendLog(socket, 'orchestrator', 'system', `⏹ Generation stopped (${stopped} active agent(s) halted)`, { stoppedCount: stopped }, 'warning');
     socket.emit('agent_message', { agentId: 'orchestrator', content: '_Generation stopped by user._', isTool: true });
+  });
+
+  socket.on('delete_agent', async (data) => {
+    const { agentId } = data;
+    if (agentId === 'orchestrator') {
+      socket.emit('agent_message', { agentId: 'orchestrator', content: 'You cannot delete the orchestrator.', isTool: true });
+      return;
+    }
+    
+    activeAgents.delete(agentId);
+    agentInstances.delete(agentId);
+    
+    const db = await dbPromise;
+    await db.run('DELETE FROM active_agents WHERE agentId = ?', [agentId]);
+    await db.run('DELETE FROM agent_memory WHERE agentId = ?', [agentId]);
+    
+    io.emit('active_agents', Array.from(activeAgents.values()));
+    sendLog(socket, 'orchestrator', 'system', `Deleted agent: ${agentId}`);
   });
 
   socket.on('clear_history', async (data) => {
@@ -2222,9 +2382,12 @@ app.post('/api/chrome/launch', async (req, res) => {
     const { exec } = await import('child_process');
     const util = await import('util');
     const execPromise = util.promisify(exec);
-
-    // Launch Chrome with remote debugging on Mac
-    exec('open -a "Google Chrome" --args --remote-debugging-port=9222');
+    const chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    const profilePath = path.join(os.homedir(), 'Library/Application Support/Google/Chrome/FrAssist');
+    
+    // Launch Chrome with remote debugging and custom profile
+    const cmd = `"${chromePath}" --remote-debugging-port=9222 --user-data-dir="${profilePath}" --no-first-run --no-default-browser-check &`;
+    await execPromise(cmd);
     
     // Wait a moment and check if port 9222 is listening
     setTimeout(async () => {
@@ -2236,10 +2399,27 @@ app.post('/api/chrome/launch', async (req, res) => {
       }
     }, 2000);
 
-    res.json({ status: 'success', message: 'Chrome launch command sent. Please ensure Chrome was CLOSED before clicking.' });
+    res.json({ status: 'success', message: 'Chrome launch command sent.' });
   } catch (e) {
-    res.status(500).json({ error: 'Failed to launch Chrome' });
+    res.status(500).json({ error: `Failed to launch Chrome: ${e.message}` });
   }
+});
+
+app.get('/api/network-info', (req, res) => {
+  const nets = os.networkInterfaces();
+  const results = {};
+
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === 'IPv4' && !net.internal) {
+        if (!results[name]) {
+          results[name] = [];
+        }
+        results[name].push(net.address);
+      }
+    }
+  }
+  res.json(results);
 });
 
 const DEFAULT_PORT = process.env.PORT || 3001;
