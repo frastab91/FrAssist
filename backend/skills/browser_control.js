@@ -1,24 +1,18 @@
 export const declaration = {
   name: 'browser_control',
-  description: 'Granular browser control following the OpenClaw operating loop. Use this for complex web tasks, tab management, and sessions.',
+  description: 'Granular browser control using a persistent OpenClaw-style daemon.',
   parameters: {
     type: 'OBJECT',
     properties: {
       action: { 
         type: 'STRING', 
-        enum: ['navigate', 'click', 'type', 'snapshot', 'screenshot', 'tabs', 'close_tab', 'wait', 'reset'],
+        enum: ['navigate', 'click', 'type', 'snapshot', 'screenshot', 'tabs', 'close_tab', 'wait', 'reset', 'init'],
         description: 'The specific browser action to perform.'
       },
       url: { type: 'STRING', description: 'URL for navigate or tab new.' },
       selector: { type: 'STRING', description: 'CSS selector or reference ID (e.g., @e1) for click/type.' },
       text: { type: 'STRING', description: 'Text to type into an input.' },
       tabId: { type: 'STRING', description: 'Target tab ID or label.' },
-      profile: { 
-        type: 'STRING', 
-        enum: ['isolated', 'user'], 
-        default: 'isolated',
-        description: 'Use "user" to attach to your real Chrome session (Amazon, Gmail, etc). Use "isolated" for a clean state.'
-      },
       waitMs: { type: 'NUMBER', description: 'Milliseconds to wait.' },
       annotate: { type: 'BOOLEAN', description: 'If true, screenshot will include numbered labels.' }
     },
@@ -26,76 +20,55 @@ export const declaration = {
   }
 };
 
-import { exec } from 'child_process';
-import util from 'util';
+import { BrowserManager } from './utils/browser_manager.js';
 import path from 'path';
 import fs from 'fs';
 
-const execPromise = util.promisify(exec);
-
 export async function execute(args) {
-  const { action, url, selector, text, tabId, profile = 'isolated', waitMs, annotate } = args;
-  
-  // Resolve profile path or flags
-  let profileFlag = '';
-  if (profile === 'user') {
-    profileFlag = '--auto-connect'; // Attempt to connect to running Chrome
-  } else {
-    const sessionDir = path.join(process.cwd(), 'data', `browser_profile_${args.sessionName || 'default'}`);
-    if (!fs.existsSync(path.dirname(sessionDir))) fs.mkdirSync(path.dirname(sessionDir), { recursive: true });
-    profileFlag = `--profile "${sessionDir}"`;
-  }
-
-  const run = async (cmd) => {
-    const fullCmd = `agent-browser ${profileFlag} ${cmd}`;
-    const { stdout, stderr } = await execPromise(fullCmd);
-    if (stderr && !stdout) throw new Error(stderr);
-    return stdout;
-  };
+  const { action, url, selector, text, tabId, waitMs, annotate } = args;
 
   try {
     switch (action) {
+      case 'init':
+        const initResult = await BrowserManager.launch();
+        return { output: initResult.message };
+
       case 'navigate':
-        return { output: await run(`open "${url}"`) };
+        return { output: await BrowserManager.runAction(`open "${url}"`) };
       
       case 'click':
-        return { output: await run(`click "${selector}"`) };
+        return { output: await BrowserManager.runAction(`click "${selector}"`) };
       
       case 'type':
-        return { output: await run(`fill "${selector}" "${text}"`) };
+        return { output: await BrowserManager.runAction(`fill "${selector}" "${text}"`) };
       
       case 'snapshot':
-        return { output: await run(`snapshot -i ${tabId ? `--tab ${tabId}` : ''}`) };
+        return { output: await BrowserManager.runAction(`snapshot -i ${tabId ? `--tab ${tabId}` : ''}`) };
       
       case 'screenshot':
+        const dir = path.join(process.cwd(), 'screenshots');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         const baseName = `capture_${Date.now()}.png`;
-        const filename = path.join(process.cwd(), 'screenshots', baseName);
-        const screenshotCmd = `screenshot ${annotate ? '--annotate' : ''} "${filename}" ${tabId ? `--tab ${tabId}` : ''}`;
-        await run(screenshotCmd);
+        const filename = path.join(dir, baseName);
+        await BrowserManager.runAction(`screenshot ${annotate ? '--annotate' : ''} "${filename}" ${tabId ? `--tab ${tabId}` : ''}`);
         return { result: 'success', screenshotUrl: `/screenshots/${baseName}` };
       
       case 'tabs':
-        return { output: await run('tab') };
+        return { output: await BrowserManager.runAction('tab') };
       
       case 'close_tab':
-        return { output: await run(`tab close ${tabId || ''}`) };
+        return { output: await BrowserManager.runAction(`tab close ${tabId || ''}`) };
       
       case 'wait':
-        return { output: await run(`wait ${waitMs || 2000}`) };
+        return { output: await BrowserManager.runAction(`wait ${waitMs || 2000}`) };
       
       case 'reset':
-        return { output: await run('close') };
+        return { output: await BrowserManager.stop() };
       
       default:
         return { error: `Unsupported action: ${action}` };
     }
   } catch (error) {
-    if (error.message.includes('daemon already running')) {
-      return { 
-        error: error.message, 
-        suggestion: "The browser daemon is locked to a different profile. Please run action: 'reset' first to switch modes."
-      };
-    }
     return { error: error.message };
   }
 }

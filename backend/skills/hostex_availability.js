@@ -3,6 +3,8 @@
  * This skill allows FrAssist to query property availabilities from the Hostex API.
  */
 
+import { backOff } from 'exponential-backoff';
+
 export const declaration = {
   name: 'get_hostex_availability',
   description: 'Query property availabilities from Hostex API for specific properties and date range.',
@@ -28,10 +30,10 @@ export const declaration = {
 
 export async function execute(args) {
   const { property_ids, start_date, end_date } = args;
-  const token = process.env.HOSTEX_ACCESS_TOKEN;
+  const token = process.env.HOSTEX_ACCESS_TOKEN || process.env.HOSTEX_API_KEY;
 
   if (!token) {
-    throw new Error('HOSTEX_ACCESS_TOKEN is not defined in environment variables.');
+    throw new Error('Neither HOSTEX_ACCESS_TOKEN nor HOSTEX_API_KEY is defined in environment variables.');
   }
 
   const url = new URL('https://api.hostex.io/v3/availabilities');
@@ -39,7 +41,7 @@ export async function execute(args) {
   url.searchParams.append('start_date', start_date);
   url.searchParams.append('end_date', end_date);
 
-  try {
+  const fetchWithRetry = async () => {
     const response = await fetch(url.toString(), {
       method: 'GET',
       headers: {
@@ -48,18 +50,27 @@ export async function execute(args) {
       }
     });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      return {
-        error: true,
-        status: response.status,
-        message: errorData.error_msg || response.statusText,
-        request_id: errorData.request_id
-      };
+    if (response.status === 429) {
+      throw new Error('429'); // Trigger backoff
     }
 
-    const data = await response.json();
-    return data;
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error_msg || response.statusText);
+    }
+
+    return await response.json();
+  };
+
+  try {
+    return await backOff(fetchWithRetry, {
+      numOfAttempts: 5,
+      startingDelay: 1000,
+      retry: (e, attemptNumber) => {
+        console.warn(`Hostex API attempt ${attemptNumber} failed: ${e.message}. Retrying...`);
+        return true; // Always retry on error
+      }
+    });
   } catch (error) {
     return {
       error: true,

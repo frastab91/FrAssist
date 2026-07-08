@@ -237,6 +237,25 @@ function sendLog(socket, agentId, type, message, data = null, level = 'info') {
   }
 }
 
+async function sendLogHistory(socket) {
+  if (!fs.existsSync(traceLogPath)) return;
+  try {
+    const data = fs.readFileSync(traceLogPath, 'utf8');
+    const lines = data.trim().split('\n');
+    const lastLogs = lines.slice(-200).map(line => {
+      try {
+        return JSON.parse(line);
+      } catch (e) {
+        return null;
+      }
+    }).filter(Boolean);
+    
+    socket.emit('log_history', lastLogs);
+  } catch (err) {
+    console.error('Failed to send log history:', err);
+  }
+}
+
 // Initialize Vertex AI
 const project = process.env.GOOGLE_CLOUD_PROJECT || 'rally-nyc';
 const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
@@ -1311,13 +1330,25 @@ ${taskContent}
             ]
           });
 
-          const result = await model.generateContent({
+          const generatePromise = model.generateContent({
             contents: buildContentsWithContext(this.history),
             systemInstruction: {
               role: 'system',
               parts: [{ text: staticSystemPrompt }]
             }
           });
+          
+          const timeoutPromise = new Promise((_, reject) => {
+            const id = setTimeout(() => reject(new Error('Vertex AI API timeout (60s)')), 60000);
+            if (this.abortController) {
+              this.abortController.signal.addEventListener('abort', () => {
+                clearTimeout(id);
+                reject(new Error('Vertex AI request cancelled by user'));
+              });
+            }
+          });
+
+          const result = await Promise.race([generatePromise, timeoutPromise]);
 
           const candidates = result.response.candidates;
           if (!candidates || candidates.length === 0) throw new Error('No candidates returned from Vertex AI');
@@ -1355,10 +1386,22 @@ ${taskContent}
             })
           }));
 
-          const result = await model.generateContent({
+          const generatePromise = model.generateContent({
             contents,
             systemInstruction: staticSystemPrompt
           });
+
+          const timeoutPromise = new Promise((_, reject) => {
+            const id = setTimeout(() => reject(new Error('Gemini API timeout (60s)')), 60000);
+            if (this.abortController) {
+              this.abortController.signal.addEventListener('abort', () => {
+                clearTimeout(id);
+                reject(new Error('Gemini API request cancelled by user'));
+              });
+            }
+          });
+
+          const result = await Promise.race([generatePromise, timeoutPromise]);
 
           const res = result.response;
           const text = res.text();
@@ -1653,15 +1696,22 @@ ${taskContent}
 
           // Send final message to UI with all collected images
           if (socket) {
-            // Only send if we haven't already sent this text in this turn
-            // (Note: turnCount check ensures we send the final answer even if empty content)
-            socket.emit('agent_message', {
+            const msgData = {
               agentId: this.id,
               role: 'assistant',
               content: response.text || '',
               images: collectedImages, 
               usage: response.usage
-            });
+            };
+            
+            // Emit to the specific socket (important for Telegram mockSocket)
+            socket.emit('agent_message', msgData);
+            
+            // Also emit globally so UI updates survive socket reconnects
+            // (We check if socket is not mockSocket by checking if io is available)
+            if (typeof io !== 'undefined' && socket !== io) {
+               io.emit('agent_message', msgData);
+            }
 
             // Update cumulative stats
             dbPromise.then(async db => {
@@ -1693,6 +1743,7 @@ ${taskContent}
         activeAgents.get(this.id).status = 'idle';
       }
       if (socket) socket.emit('agent_status', { agentId: this.id, status: 'idle' });
+      if (typeof io !== 'undefined') io.emit('agent_status', { agentId: this.id, status: 'idle' });
     }
   }
 }
@@ -1932,6 +1983,9 @@ io.on('connection', (socket) => {
     agentId: 'orchestrator', 
     history: orchestrator.history 
   });
+
+  // Restore logs
+  sendLogHistory(socket);
 
   // Send active agents list
   socket.emit('active_agents', Array.from(activeAgents.values()));

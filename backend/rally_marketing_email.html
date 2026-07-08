@@ -1,0 +1,52 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Messaging Fixes - Let's Rally!</title>
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f4f4; }
+        .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 12px; overflow: hidden; margin-top: 20px; }
+        .header { background-color: #2f3640; padding: 40px 20px; text-align: center; }
+        .header h1 { color: #e8bf6d; font-size: 44px; margin: 0; text-transform: uppercase; letter-spacing: -2px; font-weight: 900; }
+        .header p { color: #ffffff; font-size: 12px; text-transform: uppercase; letter-spacing: 3px; margin-top: 8px; opacity: 0.6; }
+        .content { padding: 40px 30px; color: #2f3640; line-height: 1.6; }
+        .content h2 { font-size: 26px; font-weight: 800; margin-bottom: 20px; letter-spacing: -1px; }
+        .cta-container { text-align: center; padding: 30px 0; }
+        .cta-button { background-color: #2f3640; color: #e8bf6d !important; padding: 18px 36px; text-decoration: none; font-weight: bold; font-size: 16px; border-radius: 12px; display: inline-block; box-shadow: 6px 6px 0px 0px #e8bf6d; text-transform: uppercase; }
+        .notice-box { background-color: #f8f8f8; border-left: 4px solid #e8bf6d; padding: 20px; margin: 24px 0; }
+        .footer { background-color: #f9f9f9; padding: 30px; text-align: center; font-size: 11px; color: #999999; border-top: 1px solid #eeeeee; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>RALLYNYC</h1>
+            <p>NYC Court & Partner Finder</p>
+        </div>
+        <img src="https://oylhowvuhatfiyejjhwd.supabase.co/storage/v1/object/public/mktg/messages-bug.jpeg" style="width: 100%; height: auto;" alt="Banner">
+        <div class="content">
+            <h2>Messaging: Fixed. Now, go find a partner. 🎾</h2>
+            <p>Listen, RallyNYC started as a hobby project by a total tennis addict—me. I just wanted to find people to play with without sending 50 text messages into the void.</p>
+            <p>Unfortunately, our messaging system decided to take a little vacation without telling me. It’s been acting up, but I’ve finally wrestled it back into submission.</p>
+            
+            <div class="notice-box">
+                <p style="margin:0; font-weight: 600; color: #2f3640;">THE FIX</p>
+                <p style="margin:8px 0 0 0; font-size: 14px; font-style: italic;">"Everything is now patched up. Your messages should actually, you know, arrive when you send them."</p>
+            </div>
+
+            <p>I really hope you’re finding someone to hit with. If not, maybe it's you, not the app? Just kidding (mostly).</p>
+
+            <div class="cta-container">
+                <a href="${APP_BASE_URL}" class="cta-button">Test the Messaging</a>
+            </div>
+            <p>Seriously, try it out on your phone right now. Let's rally.</p>
+        </div>
+        <div class="footer">
+            <p>&copy; 2026 RallyNYC • NYC Tennis Community</p>
+            <p><a href="${APP_BASE_URL}/setup" style="color: #999;">Manage Profile</a> • <a href="{{unsubscribe_url}}" style="color: #999;">Unsubscribe</a></p>
+        </div>
+    </div>
+</body>
+</html>

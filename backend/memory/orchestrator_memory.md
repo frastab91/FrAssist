@@ -763,3 +763,284 @@ Since the provided conversation was limited to a search request and greetings, h
 **4. Long-term Preferences**
 *   **Orchestration Style:** The user values direct, high-agency problem solving. When technical issues arise (like publishing status), the user prefers the model to exhaust technical solutions (e.g., service keys) rather than defaulting to "it's a cache issue" before verifying the infrastructure stack.
 *   **Correction:** The model needs to demonstrate greater awareness of existing project assets (like the "Arrival Guide") to avoid repeating redundant tasks or making inaccurate assumptions about the state of the content.
+
+## Session Extract: 2026-05-09T14:41:05.588Z
+### Long-term Memory: Property & Guest Management
+
+#### 1. Key Facts/Decisions Made
+*   **Property Status:** "Floor 1" (Piano 1) has a vacancy from June 1–9, 2026, due to a cancellation.
+*   **Current Guest:** Paula Albertella’s current stay ends May 31, 2026.
+*   **Decision:** Offered Paula a discounted rate of **€500** for a 7-night extension (June 1–8). 
+*   **Financial Rationale:** Accepted that an 80% vacancy risk makes the €500 offer a sound financial move to ensure occupancy and guest loyalty.
+*   **Communication Strategy:** Positioned the discount as a "one-time special gesture" to protect the standard €750 rate from future "anchoring" expectations.
+
+#### 2. New Skills or Tools Added
+*   **Drafting Strategies:** Implemented a dual-language (English/Italian) communication template for guest extensions.
+*   **Pricing Analysis:** Utilized a "pro vs. con" framework to evaluate the financial viability of aggressive last-minute discounts.
+
+#### 3. Project-Specific Context
+*   **Unit Name:** Floor 1 (Piano 1 con terrazza privata).
+*   **Pricing Baseline:** Standard weekly rate for June is €750.
+*   **Management Team:** Francesco & Enerlida.
+*   **Guest Lifecycle:** Proactive management of existing guests to fill unexpected calendar gaps.
+
+#### 4. Long-term Preferences
+*   **Occupancy Strategy:** Preference for high occupancy over full-price margins when vacancy probability is high (>80%).
+*   **Relationship Management:** Focus on guest goodwill and loyalty to encourage 5-star reviews and repeat bookings.
+*   **Pricing Integrity:** Careful to label significant discounts as "one-time" or "last-minute" to avoid devaluing the property for future bookings.
+
+## Session Extract: 2026-05-09T14:44:05.705Z
+### Long-term Memory Summary
+
+**1. Key Facts/Decisions Made**
+*   **Decision:** Agreed to avoid direct, forced interaction with websites protected by advanced Cloudflare challenges (e.g., Financial Times) to prevent IP blacklisting and session failure.
+*   **Fact:** Direct scraping of high-security sites is an adversarial "cat-and-mouse" game; current automated browser environments are consistently flagged by server-side behavioral analysis.
+
+**2. New Skills or Tools Added**
+*   **Operational Awareness:** Acknowledged specific technical limitations regarding browser fingerprinting, residential proxy requirements, and behavioral mimicry.
+*   **Strategy:** Shifted to high-reliability information retrieval methods (e.g., Google News/aggregated sources) as a preferred alternative to direct site scraping.
+
+**3. Project-Specific Context**
+*   **Goal:** Accessing premium news content (Financial Times) via autonomous agents.
+*   **Constraint:** The agent identified that despite having 24 capabilities, it lacks the specific infrastructure (e.g., residential proxies, dynamic browser fingerprinting) to bypass sophisticated anti-bot protections reliably.
+
+**4. Long-term Preferences**
+*   **Efficiency:** The user prefers "high-agency" problem solving but values reliability over persistent, low-success-rate technical workarounds.
+*   **Workflow:** When direct access fails, the user prefers the agent to pivot to the next most reliable source rather than continuing to exhaust limited resources on an blocked endpoint.
+
+## Session Extract: 2026-05-09T17:20:41.938Z
+# Long-term Memory: Browser Architecture & Project Context
+
+## 1. Key Facts/Decisions
+*   **Project Goal:** Migrating the agent’s browser interaction from isolated CLI-based spawning to a persistent, long-running daemon.
+*   **Methodology:** Adopted "OpenClaw" inspiration—connecting to a local Chrome instance via `--remote-debugging-port=9222` to inherit user authentication (cookies, history, sessions).
+*   **Infrastructure:** Decoupled browser lifecycle management into a new `BrowserManager` utility.
+*   **Constraint:** The system cannot bypass server-side behavioral analysis if it detects an automated agent, even with valid login profiles.
+*   **Client Communication:** Drafted a professional WhatsApp reply for "TraMonti e Mare" regarding direct booking (150€ discount, 50% deposit, specific cancellation policy: 100% refund >30 days, 50% refund 14-30 days, 0% <14 days).
+
+## 2. New Skills or Tools Added
+*   **`BrowserManager` (Class/Module):** Manages the Chrome daemon, profile path resolution, and persistent connection.
+*   **Refactored `browser_control.js`:** Now delegates lifecycle commands (init, execute) to the `BrowserManager`.
+*   **Environment Configuration:** Added support for headless-mode flagging and automation control (e.g., `--disable-blink-features=AutomationControlled`).
+
+## 3. Project-Specific Context
+*   **Host Environment:** macOS (Chrome user data located at `~/Library/Application Support/Google/Chrome/Default`).
+*   **Current Workflow:** User must close existing Chrome windows before the agent can successfully `init` the persistent browser daemon.
+*   **Persistence Strategy:** Moving away from ephemeral `data/` directories to direct mapping of the local user profile.
+
+## 4. Long-Term Preferences
+*   **Security/Privacy:** Prefer agent-browser architectures that do not hijack active personal windows but rather mirror the user's logged-in state through managed persistence.
+*   **Interaction Style:** Expects "Human-like" simulation (delays, mouse jitter, non-instantaneous typing) to avoid triggering bot detection systems on sites like Reddit and Financial Times.
+*   **Transparency:** Prioritizes professional, well-documented communication for rental/business inquiries.
+
+## Session Extract: 2026-05-11T02:17:51.850Z
+### Long-term Memory: Project Tra-Montiemare
+
+**1. Key Facts/Decisions Made**
+*   **Guest Communication:** Successfully drafted a personalized outreach message to current "Piano 1" guest (Paula Albertella) offering a booking extension through June 8th.
+*   **Automation Strategy:** Evaluated two distinct methods for WhatsApp integration. Decided against browser-based UI automation for WhatsApp due to instability and high risk of account flagging.
+
+**2. New Skills or Tools Added**
+*   **Baileys Library:** Identified as the technical tool behind "OpenClaw" to emulate the WhatsApp Web protocol for direct server-side communication.
+*   **Protocol Emulation vs. Browser Automation:** Gained understanding that direct WebSocket protocol communication (Baileys) is more efficient and reliable than full browser simulation (CDP) for messaging tasks.
+
+**3. Project-Specific Context**
+*   **Property:** "Piano 1" apartment in Scalea.
+*   **Guest Data:** Paula Albertella (Current guest, May 3–31).
+*   **Operational Workflow:** Manual check of availability followed by AI-assisted drafting of guest outreach.
+
+**4. Long-term Preferences**
+*   **Business Stability:** Priority is placed on account safety. The user was advised that the **WhatsApp Business API** is the recommended, professional path for business operations to avoid bans.
+*   **Acceptance of Risk:** Acknowledged that while "Baileys" is technically viable for a "high-agency" personal setup, it carries the risk of service disruptions due to unofficial status and potential Meta security updates.
+
+## Session Extract: 2026-05-11T03:23:24.952Z
+### Long-term Memory: Rally-NYC Marketing & Growth
+
+#### 1. Key Facts & Decisions
+*   **Campaign Theme:** "Sweeping the Court." Leveraged the cultural momentum of the New York Knicks sweeping the Philadelphia 76ers to create a high-engagement hook for tennis players.
+*   **Core Value Proposition:** Positioned the app as a tool to end "guessing games" at local courts; users are encouraged to be "Community MVPs" by posting court status/availability.
+*   **Growth Strategy:** Implementing a "Bounty" program targeting the first 50 signups who contribute three court updates to earn "Featured Partner" status.
+*   **Target Communities:** 
+    *   NYC Tennis Players (Facebook)
+    *   r/NYCtennis (Reddit)
+    *   Astoria Park Tennis (Facebook)
+
+#### 2. New Skills & Tools
+*   **Hyper-Personalized Copywriting:** Integrated real-time local context (weather shifts and NYC cultural events like the Jack Kirby way ceremony) to increase email open rates and relevance.
+*   **Community Seeding:** Developed a structured outreach template for local sports groups to incentivize early-stage user engagement.
+
+#### 3. Project-Specific Context
+*   **Branding Style:** High-contrast, tech-forward aesthetic. Key colors: Electric Blue, Bright Tennis-Ball Yellow, White.
+*   **Design Preference:** Transitioning toward minimalist, geometric, and architectural vector designs for app assets.
+*   **Constraint Notice:** The project is currently experiencing significant rate-limiting issues with automated image generation tools. Future visual requests should be spaced out by at least 60–120 minutes to prevent API lockout.
+
+#### 4. Long-term Preferences
+*   **Tone:** High-energy, punchy, and culturally relevant (NYC-sports centric).
+*   **Content Focus:** Problem/Solution-oriented (e.g., addressing the pain of wasted trips to full courts).
+*   **Visual Direction:** Avoid "silly" or distorted AI imagery. Preference for sharp, precise, minimalist graphic design that aligns with a clean, modern app identity.
+
+## Session Extract: 2026-05-11T03:35:57.391Z
+### Long-Term Memory Summary
+
+#### 1. Key Facts/Decisions Made
+*   **Project Status:** Confirmed the `send-marketing-campaign` is a **Supabase Edge Function** (not a database RPC).
+*   **Integration:** Successfully configured `RESEND_API_KEY_RALLY` in the project `.env` file to allow programmatic access to email delivery logs.
+*   **Automation:** Scheduled a permanent background job to check the status of marketing campaigns via the Resend API.
+*   **Scheduling Update:** The automated status report is locked for **08:05 CEST** daily.
+*   **Reporting:** All campaign status updates will be delivered directly to the user via **Telegram**.
+
+#### 2. New Skills or Tools Added
+*   **Resend API Integration:** Enabled the Developer agent to query `v1/emails` endpoints for delivery tracking and status reporting.
+*   **Persistence Proof:** Confirmed that scheduled tasks and environment variables are stored in the project's persistent file system (`.env` and system task queue), ensuring continuity across different chat sessions.
+
+#### 3. Project-Specific Context
+*   **Rally NYC:** 
+    *   Current marketing hook: *"Knicks swept the Sixers. Now, can you sweep the court?"* 
+    *   Infrastructure: The project uses Supabase Edge Functions for business logic and Resend for mail delivery. 
+    *   Identified that individual early-subscriber emails are tracked in the `profiles` table (`early_subscriber_email_sent_at`), but bulk marketing is handled via the separate `send-marketing-campaign` Edge Function.
+*   **Tra-Montiemare:** Remains an active project in the Orchestrator's dashboard for guest inquiry management and database housekeeping.
+
+#### 4. Long-Term Preferences
+*   **Task Resilience:** The user prioritizes robust, automated backend verification over manual status checks.
+*   **Notification Protocol:** Preferred communication channel for automated reports is **Telegram**.
+*   **Error Mitigation:** Explicitly requested a 5-minute buffer (08:05 vs 08:00) for morning reports to ensure data processing is complete before notification.
+*   **Communication Style:** The Orchestrator should provide technical transparency regarding *how* tasks are persisted (e.g., distinguishing between session history and background cron jobs).
+
+## Session Extract: 2026-05-14T03:09:40.339Z
+### Long-term Memory: RallyNYC
+
+#### 1. Key Facts/Decisions
+*   **Marketing Campaign:** A broadcast email was drafted to inform users of recent mobile messaging fixes for the RallyNYC app.
+*   **Narrative Style:** Adopted a personal, "hobbyist" tone emphasizing that the project is run by a tennis addict, using self-deprecating humor and a sarcastic CTA to encourage user engagement.
+*   **Performance Bottleneck Identified:** The current `send-marketing-campaign` Edge Function is too slow due to sequential, synchronous API calls inside a `for` loop, causing high latency and potential future timeouts.
+
+#### 2. New Skills or Tools Added
+*   **Architectural Pattern:** Transition from synchronous, sequential execution to an asynchronous, queue-based system for background tasks.
+*   **Optimization Strategy:** Moving away from per-user API calls by caching user email addresses in the `profiles` table upon registration to eliminate redundant Auth Admin API lookups.
+
+#### 3. Project-Specific Context
+*   **Application:** RallyNYC (a court and partner finder for NYC tennis players).
+*   **Infrastructure:** Uses Supabase Edge Functions, Deno, and the Resend API.
+*   **Asset Management:** Marketing banner hosted via Supabase Storage: `https://oylhowvuhatfiyejjhwd.supabase.co/storage/v1/object/public/mktg/messages-bug.jpeg`.
+
+#### 4. Long-term Preferences
+*   **Communication Style:** Casual, authentic, and community-focused; the user prefers the "solo founder/tennis enthusiast" brand voice over corporate marketing speak.
+*   **Technical Philosophy:** Prefers scalable, robust solutions; willing to refactor existing code (e.g., implementing a queue system) to prevent performance degradation as the user base grows.
+
+## Session Extract: 2026-05-29T00:53:34.737Z
+### Long-term Memory Summary
+
+**1. Key Facts/Decisions Made**
+*   **Booking Correction:** Confirmed the *Attico (Top Floor)* is fully booked from September 12 to October 31, 2026 (Guest: Inguna).
+*   **Calendar Correction:** Confirmed that *Piano 1* is fully available from October 22, 2026, through the end of the year (previous database entries for Nathalie Callens were identified as 2025 records, not 2026).
+*   **Pricing Strategy:** Implemented a blended pricing model for shoulder-season crossovers (e.g., August 31–September 12), utilizing high-season nightly rates for August and weekly discounted rates for the September portion.
+
+**2. New Skills or Tools Added**
+*   **Database Audit Protocol:** Established a requirement to cross-reference `guests` table data with the `year` and `status` fields before quoting availability to avoid legacy data errors.
+
+**3. Project-Specific Context**
+*   **Apartment Inventory:**
+    *   *Attico (Top Floor):* Primary, high-view unit.
+    *   *Piano 1 (First Floor):* Secondary unit, high occupancy in peak summer.
+*   **Pricing Constants:** 
+    *   *Attico High-Season (July):* €145/night base.
+    *   *Attico High-Season (August):* €165/night base.
+    *   *Attico September Weekly Rate:* €950.
+    *   *Cleaning Fee:* Standardized at €50.
+
+**4. Long-term Preferences**
+*   **Communication Tone:** Warm, inviting, and personalized (e.g., "Ciao," "slow living," "secret spots").
+*   **Guest Interaction:** Proactively offer local recommendations (food/wine) to enhance the guest experience after finalizing bookings.
+*   **Operational Integrity:** When in doubt about database accuracy, manually verify records rather than relying on automated queries if contradictions (like the 2025/2026 year error) arise.
+
+## Session Extract: 2026-05-30T01:05:02.197Z
+### Long-term Memory: Tra-Montiemare
+
+**1. Key Facts/Decisions Made**
+*   **WhatsApp Integration:** All booking inquiry responses must now include a standard closing invitation to contact the hosts via WhatsApp at [http://wa.me/16468985960](http://wa.me/16468985960).
+*   **Operational Workflow:** When a turnover day is required (e.g., preparing for new arrivals), it is standard practice to propose a slightly shorter stay to guests if the requested checkout date conflicts with the cleaning/preparation schedule.
+*   **Marketing Automation:** Confirmed access to monitor email delivery status via the Resend API.
+
+**2. New Skills or Tools Added**
+*   **Resend API:** Integrated for checking the delivery status of marketing campaigns and transactional emails.
+*   **Telegram Notification:** Enabled for status updates regarding automated background jobs (e.g., campaign success/failure reports).
+*   **Database Querying:** Proficiency in checking availability across integrated platforms (Hostex/Supabase).
+
+**3. Project-Specific Context**
+*   **Property Details:**
+    *   *Top Floor (Attico):* Marketed for romantic/peaceful stays.
+    *   *Floor 1 (Piano 1):* Marketed for families; features a private terrace.
+*   **Operations:** The team requires a minimum of one full day between bookings for cleaning and apartment preparation.
+*   **Location:** The property is located in Scalea; hosts emphasize providing guests with "local secret spots" (hidden beaches/authentic restaurants) as part of the guest experience.
+
+**4. Long-term Preferences**
+*   **Communication Style:** Warm, professional, and inviting. The host persona is "Francesco & Enerlida."
+*   **Proactive Guest Support:** Always confirm availability, suggest specific property features based on the guest's stated intent (e.g., romantic vs. family), and offer clear pathways for rapid communication (WhatsApp).
+
+## Session Extract: 2026-06-07T14:04:37.147Z
+### Long-term Memory Update
+
+**1. Key Facts/Decisions Made**
+*   **Protocol Update:** All guest communications must use the greeting format: "Ciao [Name] 🌊".
+*   **Team Voice:** All communications should be written in the first-person plural ("We") to reflect that the property is managed by both Francesco and Enerlida.
+*   **Tone/Style:** Responses should be empathetic and human. Avoid "AI-sounding" filler. When replying to complaints, remain empathetic but non-defensive, providing context where necessary without making excuses.
+*   **Communication Channels:** Always reply in the same language as the guest's inquiry. When replying to WhatsApp messages, avoid proposing a switch to WhatsApp (since the conversation is already there) and maintain a casual, message-appropriate length rather than an email-style format.
+*   **Insurance/Admin:** When filling insurance forms, use the Account Name (e.g., "UNOPS IICA") for the Group Number, not the network name (e.g., "MultiPlan").
+
+**2. New Skills/Tools Added**
+*   **Database Management:** Ability to query Supabase tables to check real-time property availability for "Tra-Montiemare" (avoiding assumptions).
+*   **Scheduled Jobs:** Capability to interface with Resend API for marketing campaigns and provide status updates via Telegram.
+
+**3. Project-Specific Context**
+*   **Tra-Montiemare:** A vacation rental property in Scalea. 
+    *   **Piano 1 (First Floor):** ID `984ef1c8-78d4-4b7f-8eb8-27f2b058be27`.
+    *   **Availability:** Availability must be checked via Supabase for specific date ranges before confirming to guests.
+    *   **Marketing Asset:** A sunset video is available for sharing with interested guests: [https://www.youtube.com/shorts/mQ8imLuc5bM](https://www.youtube.com/shorts/mQ8imLuc5bM).
+*   **Rally NYC:** A tennis-focused community platform currently prioritizing "The Post-Sweep Rush" marketing campaign (leveraging local sports momentum to drive platform usage/data collection).
+
+**4. Long-term Preferences**
+*   **Tone:** Friendly, professional, but concise (especially for WhatsApp).
+*   **Customer Service:** When guests complain about noise/environment, validate their experience, mention the uniqueness of the situation, and offer support/flexibility without taking blame for external factors.
+
+## Session Extract: 2026-06-13T14:47:44.644Z
+### Long-term Memory: TraMonti e Mare
+
+**1. Key Facts/Decisions**
+*   **Booking Conflict:** A booking (Angela Zurschmiede, July 2026) was cancelled due to unavoidable structural work required at the property. 
+*   **Platform Stance:** The hosts have taken a firm stance against Booking.com’s policy of holding hosts financially liable for relocation costs caused by essential, unavoidable maintenance. The hosts are prepared to close their Booking.com account if forced to pay these costs.
+*   **Operational Note:** Hosts cannot directly cancel reservations on Booking.com; this action must be initiated by the guest or the platform.
+*   **Pricing/Inquiry:** The rate for the "Top Floor – Breathtaking Views" apartment for a month-long stay in May 2027 is **€1,300** (plus a **€50** final cleaning fee).
+
+**2. New Skills/Tools**
+*   **Calendar/Guest Data Integration:** The system is now expected to cross-reference internal reservation calendars and guest databases to provide specific availability and occupancy reports.
+*   **Communication Channel:** WhatsApp contact link established for direct guest inquiries: [http://wa.me/16468985960](http://wa.me/16468985960).
+
+**3. Project-Specific Context**
+*   **Property Identity:** "TraMonti e Mare" located in Scalea, Italy.
+*   **Key Amenities/Marketing:** Highlighting the location as an authentic "slow living" destination with local food and hospitality. 
+*   **Media Assets:** Sunset video link for marketing purposes: [https://www.youtube.com/shorts/mQ8imLuc5bM](https://www.youtube.com/shorts/mQ8imLuc5bM).
+
+**4. Long-term Preferences**
+*   **Host Communication Style:** Professional yet warm (using the 🌊 emoji). Direct and protective of business interests regarding platform fees and maintenance obligations.
+*   **Operational Priority:** Maintaining the structural integrity of the property is a non-negotiable priority, regardless of booking schedules.
+*   **Guest Engagement:** Hosts prefer to provide personalized local recommendations ("secret spots," trattorias) to enhance the guest experience.
+
+## Session Extract: 2026-06-21T18:32:36.475Z
+### Long-Term Memory Update
+
+#### 1. Key Facts/Decisions Made
+*   **Booking confirmed:** Aniello Panariello, Aug 17–23, 2026. 5 guests.
+*   **Property:** Scalea apartment (Note: potential capacity check required for "Piano 1" vs. "Attico").
+*   **Communication Style:** Warm, professional, using "we" (Francesco and Enerlida), friendly/inviting tone.
+
+#### 2. New Skills/Tools Added
+*   **Dynamic Guide Link Generation:** Adopted a standardized URL structure for guest guides: `https://www.tra-montiemare.it/guest?code={access_code}`.
+
+#### 3. Project-Specific Context
+*   **Brand:** "Tra Monti e Mare" (Scalea property).
+*   **Communication Workflow:** Greeting messages must include guest names, stay dates, and the personalized dynamic guide link.
+*   **Host Data Sources:** Information is retrieved via Hostex or Supabase integrations.
+
+#### 4. Long-Term Preferences
+*   **Messaging Protocol:** Always include the dynamic guide link in initial welcome messages.
+*   **Tone:** Maintain a warm, welcoming, and hospitable Italian tone for all guest interactions.

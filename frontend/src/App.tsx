@@ -196,7 +196,7 @@ export default function App() {
       }
     });
 
-    newSocket.on('agent_message', (data: { agentId: string; content: string; image?: string; usage?: any; isTool?: boolean }) => {
+    newSocket.on('agent_message', (data: { agentId: string; content: string; image?: string; images?: string[]; usage?: any; isTool?: boolean }) => {
       setMessages((prev) => [
         ...prev,
         {
@@ -204,7 +204,7 @@ export default function App() {
           role: 'assistant',
           agentId: data.agentId,
           content: data.content,
-          images: data.image ? [data.image] : undefined,
+          images: data.images ? data.images : (data.image ? [data.image] : undefined),
           usage: data.usage,
           isTool: data.isTool
         },
@@ -268,6 +268,10 @@ export default function App() {
       }
     });
 
+    newSocket.on('log_history', (history: LogEvent[]) => {
+      setLogs(history);
+    });
+
     newSocket.on('ollama_status', (data: any) => {
       setOllamaStatus(data);
     });
@@ -310,7 +314,20 @@ export default function App() {
         data: { tool: data.tool }
       }]);
     });
-    
+
+    newSocket.on('agent_error', (data: { agentId: string; error: string }) => {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: 'assistant',
+          agentId: data.agentId,
+          content: `⚠️ **Agent Error:** ${data.error}`,
+        },
+      ]);
+      setIsTyping(false);
+    });
+
     newSocket.on('system_heartbeat', (data: any) => {
       setHeartbeat(data);
     });
