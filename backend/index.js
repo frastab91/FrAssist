@@ -467,6 +467,17 @@ WORKFLOW: 1. open -> 2. snapshot (to read refs) -> 3. screenshot (to show user).
           }
         },
         {
+          name: 'send_telegram_notification',
+          description: 'Send a proactive notification, editorial update, or status alert directly to the user via Telegram.',
+          parameters: {
+            type: 'OBJECT',
+            properties: {
+              message: { type: 'STRING', description: 'The markdown formatted message to send to the user on Telegram.' }
+            },
+            required: ['message']
+          }
+        },
+        {
           name: 'web_search',
           description: 'Search the live web for current information using Tavily.',
           parameters: {
@@ -557,8 +568,9 @@ WORKFLOW: 1. open -> 2. snapshot (to read refs) -> 3. screenshot (to show user).
               action: { type: 'STRING', enum: ['schedule', 'list', 'delete', 'toggle'], description: 'Action to perform' },
               jobId: { type: 'INTEGER', description: 'ID of the job for delete/toggle' },
               name: { type: 'STRING', description: 'Descriptive name for the job' },
-              cron: { type: 'STRING', description: 'Standard cron expression (e.g. "0 8 * * *" for 8am daily)' },
-              task: { type: 'STRING', description: 'The task description for the agent to execute when the job triggers' }
+              cron: { type: 'STRING', description: 'Standard cron expression (e.g. "0 8 * * *" for 8am daily, or "0 9 */3 * *" for every 3 days)' },
+              task: { type: 'STRING', description: 'The task description for the agent to execute when the job triggers' },
+              agentId: { type: 'STRING', description: 'Optional agent ID to execute this job (e.g. "copy_editor_expert", "orchestrator")' }
             },
             required: ['action']
           }
@@ -678,6 +690,19 @@ async function executeTool(call, socket) {
         if (error) throw error;
         return { data };
       }
+      if (action === 'update') {
+        const { match, values } = query || {};
+        if (!match || !values) {
+          return { error: 'For update action, "query" must contain "match" (e.g. { id: "..." }) and "values" (e.g. { status: "published" }).' };
+        }
+        let q = supabase.from(table).update(values);
+        Object.entries(match).forEach(([k, v]) => {
+          q = q.eq(k, v);
+        });
+        const { data, error } = await q.select();
+        if (error) throw error;
+        return { data };
+      }
       return { error: 'Unsupported supabase action' };
     }
     if (name === 'spawn_agent') {
@@ -764,15 +789,16 @@ async function executeTool(call, socket) {
         if (!cronExpr || !task) return { error: 'cron and task are required for scheduling' };
         if (!cron.validate(cronExpr)) return { error: 'Invalid cron expression' };
 
+        const targetAgentId = args.agentId || 'orchestrator';
         const result = await db.run(
           'INSERT INTO scheduled_jobs (name, cron, task, agentId) VALUES (?, ?, ?, ?)',
-          [jobName || 'Unnamed Job', cronExpr, task, 'orchestrator']
+          [jobName || 'Unnamed Job', cronExpr, task, targetAgentId]
         );
         
         const newJobId = result.lastID;
-        scheduleCronJob(newJobId, cronExpr, task, jobName);
+        scheduleCronJob(newJobId, cronExpr, task, jobName, targetAgentId);
         
-        return { status: 'Job scheduled successfully', jobId: newJobId };
+        return { status: 'Job scheduled successfully', jobId: newJobId, agentId: targetAgentId };
       }
 
       if (action === 'list') {
@@ -926,6 +952,27 @@ async function executeTool(call, socket) {
         return { status: 'Voice message sent.', audioUrl };
       } catch (e) {
         return { error: `Voice generation failed: ${e.message}` };
+      }
+    }
+    if (name === 'send_telegram_notification') {
+      const { message } = args;
+      if (!message) return { error: 'message is required' };
+      if (!tgBot || !lastTelegramChatId) {
+        sendLog(socket, 'system', 'warning', `Telegram bot is not connected or no active chat ID yet. Message logged locally.`);
+        return { 
+          status: 'logged_locally', 
+          note: 'Telegram notification recorded. (Send /start to your bot on Telegram to receive live notifications)',
+          message 
+        };
+      }
+      try {
+        await tgBot.telegram.sendMessage(lastTelegramChatId, message, { parse_mode: 'Markdown' }).catch(async () => {
+          await tgBot.telegram.sendMessage(lastTelegramChatId, message);
+        });
+        sendLog(socket, 'system', 'telegram_sent', `Telegram notification delivered to chat ${lastTelegramChatId}`);
+        return { success: true, deliveredTo: lastTelegramChatId };
+      } catch (err) {
+        return { error: `Failed to send Telegram message: ${err.message}` };
       }
     }
     if (name === 'web_search') {
@@ -1320,14 +1367,12 @@ ${taskContent}
           (provider.startsWith('ollama') ? 'Local Ollama' : provider));
         if (socket) sendLog(socket, this.id, 'api_request', `Generating content (turn ${turnCount}) using ${displayName}`);
         
+        const __llmStartTime = Date.now();
         let response;
         if (provider === 'gemini') {
           const model = vertexAI.preview.getGenerativeModel({
-            model: 'gemini-3.1-flash-lite-preview', 
-            tools: [
-              { functionDeclarations: getToolDeclarations()[0].functionDeclarations },
-              { googleSearch: {} }
-            ]
+            model: 'gemini-2.5-flash-lite', 
+            tools: [{ functionDeclarations: getToolDeclarations()[0].functionDeclarations }]
           });
 
           const generatePromise = model.generateContent({
@@ -1353,14 +1398,15 @@ ${taskContent}
           const candidates = result.response.candidates;
           if (!candidates || candidates.length === 0) throw new Error('No candidates returned from Vertex AI');
           
-          const firstCandidate = candidates[0].content;
-          const functionCalls = firstCandidate.parts.filter(p => p.functionCall).map(p => p.functionCall);
-          const text = firstCandidate.parts.filter(p => p.text).map(p => p.text).join('\n');
+          const firstCandidate = candidates[0]?.content;
+          const parts = firstCandidate?.parts || [];
+          const functionCalls = parts.filter(p => p && p.functionCall).map(p => p.functionCall);
+          const text = parts.filter(p => p && p.text).map(p => p.text).join('\n');
 
           response = {
             functionCalls: functionCalls.length > 0 ? functionCalls : null,
             text: text,
-            originalParts: firstCandidate.parts,
+            originalParts: parts,
             usage: {
               promptTokens: result.response.usageMetadata?.promptTokenCount || 0,
               candidatesTokens: result.response.usageMetadata?.candidatesTokenCount || 0,
@@ -1371,14 +1417,14 @@ ${taskContent}
           // Use standard Gemini API (AI Studio) if an API Key is present
           const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
           const model = genAI.getGenerativeModel({ 
-            model: 'gemini-1.5-flash',
+            model: 'gemini-2.5-flash-lite',
             tools: [{ functionDeclarations: getToolDeclarations()[0].functionDeclarations }]
           });
 
           // Convert history to standard role/parts format, injecting dynamic context
           const contents = buildContentsWithContext(this.history).map(h => ({
             role: h.role === 'model' ? 'model' : 'user',
-            parts: h.parts.map(p => {
+            parts: (h.parts || []).map(p => {
               if (p.text) return { text: p.text };
               if (p.functionCall) return { functionCall: p.functionCall };
               if (p.functionResponse) return { functionResponse: p.functionResponse };
@@ -1404,9 +1450,15 @@ ${taskContent}
           const result = await Promise.race([generatePromise, timeoutPromise]);
 
           const res = result.response;
-          const text = res.text();
-          const functionCalls = res.candidates[0].content.parts
-            .filter(p => p.functionCall)
+          let text = '';
+          try {
+            text = res.text();
+          } catch (_) {
+            text = '';
+          }
+          const candidateParts = res.candidates?.[0]?.content?.parts || [];
+          const functionCalls = candidateParts
+            .filter(p => p && p.functionCall)
             .map(p => p.functionCall);
 
           response = {
@@ -1512,59 +1564,131 @@ ${taskContent}
             }
           };
         } else {
-          let ollamaModel = 'gemma2:2b'; // default
-          if (provider === 'ollama_qwen') ollamaModel = 'qwen2.5-coder:14b';
-          else if (provider.startsWith('ollama:')) ollamaModel = provider.substring(7);
-          
+          // Resolve Ollama model dynamically
+          let requestedModel = 'auto';
+          if (provider === 'ollama_qwen') requestedModel = 'qwen2.5-coder:14b';
+          else if (provider.startsWith('ollama:')) requestedModel = provider.substring(7);
+          else if (provider !== 'ollama') requestedModel = provider;
+
+          let ollamaModel = requestedModel;
+
+          // Query Ollama for available models to ensure the requested model exists or resolve fallback
+          try {
+            const tagsRes = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(3000) });
+            if (tagsRes.ok) {
+              const tagsData = await tagsRes.json();
+              const installedModels = (tagsData.models || []).map(m => m.name);
+              
+              if (installedModels.length > 0) {
+                if (requestedModel === 'auto' || requestedModel === 'ollama') {
+                  // Default to first available model or qwen/gemma if present
+                  const preferred = installedModels.find(m => m.includes('gemma4') || m.includes('qwen2.5')) || installedModels[0];
+                  ollamaModel = preferred;
+                } else if (!installedModels.includes(requestedModel)) {
+                  // Try to find a partial match (e.g. 'gemma4' matching 'gemma4:latest')
+                  const match = installedModels.find(m => m === requestedModel || m.startsWith(`${requestedModel}:`) || m.split(':')[0] === requestedModel.split(':')[0]);
+                  if (match) {
+                    ollamaModel = match;
+                  } else {
+                    ollamaModel = installedModels[0];
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Could not query Ollama tags for model resolution:', e.message);
+          }
+
+          const mappedHistory = this.history.map((h, hIdx) => {
+            if (h.role === 'user') {
+              if (h.parts[0]?.functionResponse) {
+                return { 
+                  role: 'tool', 
+                  content: typeof h.parts[0].functionResponse.response === 'string' ? h.parts[0].functionResponse.response : JSON.stringify(h.parts[0].functionResponse.response),
+                  tool_call_id: `call_${hIdx - 1}`
+                };
+              }
+              const userText = h.parts.filter(p => p.text).map(p => p.text).join('\n');
+              return { role: 'user', content: userText || '' };
+            }
+            if (h.role === 'model') {
+              if (h.parts[0]?.functionCall) {
+                return { role: 'assistant', tool_calls: h.parts.filter(p => p.functionCall).map((p, pIdx) => ({ 
+                  id: `call_${hIdx}_${pIdx}`,
+                  type: 'function',
+                  function: { name: p.functionCall.name, arguments: p.functionCall.args } 
+                })) };
+              }
+              const modelText = h.parts.filter(p => p.text).map(p => p.text).join('\n');
+              return { role: 'assistant', content: modelText || '' };
+            }
+            return { role: h.role, content: h.parts?.[0]?.text || '' };
+          });
+
+          // Inject dynamic context into the very last user message to preserve KV cache for history
+          let lastUserIdx = -1;
+          for (let i = mappedHistory.length - 1; i >= 0; i--) {
+            if (mappedHistory[i].role === 'user') {
+              lastUserIdx = i;
+              break;
+            }
+          }
+          if (lastUserIdx !== -1 && dynamicContextText) {
+            mappedHistory[lastUserIdx].content = `[System Context Update]\n${dynamicContextText}\n\n[User Query]\n${mappedHistory[lastUserIdx].content}`;
+          }
+
+          let ollamaSystemPrompt = staticSystemPrompt;
+          if (ollamaSystemPrompt.length > 6000) {
+            // Trim memory for local inference speed while retaining core instructions & context
+            const recentMemory = memoryContent.length > 2000 ? memoryContent.slice(-2000) : memoryContent;
+            ollamaSystemPrompt = `Active Project: ${activeProject.title} (${activeProject.description})${projectContext}\n\nAvailable Specialized Agents:\n${agentsList}\n\nAvailable Runtime Capabilities (${toolNames.length}):\n${toolsList}\n\n${systemContent}\n\n# Long-term Memory (Recent Summary)\n${recentMemory}`;
+          }
+
           const ollamaMessages = [
-            { role: 'system', content: staticSystemPrompt + '\n\n' + dynamicContextText },
-            ...this.history.map((h, hIdx) => {
-              if (h.role === 'user') {
-                if (h.parts[0].functionResponse) {
-                  return { 
-                    role: 'tool', 
-                    content: JSON.stringify(h.parts[0].functionResponse.response),
-                    tool_call_id: `call_${hIdx - 1}`
-                  };
-                }
-                return { role: 'user', content: h.parts[0].text };
-              }
-              if (h.role === 'model') {
-                if (h.parts[0].functionCall) {
-                  return { role: 'assistant', tool_calls: h.parts.map((p, pIdx) => ({ 
-                    id: `call_${hIdx}`,
-                    type: 'function',
-                    function: { name: p.functionCall.name, arguments: p.functionCall.args } 
-                  })) };
-                }
-                return { role: 'assistant', content: h.parts[0].text };
-              }
-              return { role: h.role, content: h.parts[0].text };
-            })
+            { role: 'system', content: ollamaSystemPrompt },
+            ...mappedHistory
           ];
+
+          const convertSchema = (schema) => {
+            if (!schema || typeof schema !== 'object') return schema;
+            const s = { ...schema };
+            if (s.type && typeof s.type === 'string') s.type = s.type.toLowerCase();
+            if (s.properties) {
+              const props = {};
+              for (const [k, v] of Object.entries(s.properties)) {
+                props[k] = convertSchema(v);
+              }
+              s.properties = props;
+            }
+            if (s.items) s.items = convertSchema(s.items);
+            return s;
+          };
 
           const ollamaTools = getToolDeclarations()[0].functionDeclarations.map(fd => ({
             type: 'function',
             function: {
               name: fd.name,
               description: fd.description,
-              parameters: {
-                type: 'object',
-                properties: fd.parameters.properties,
-                required: fd.parameters.required
-              }
+              parameters: convertSchema(fd.parameters)
             }
           }));
 
-          if (socket) sendLog(socket, this.id, 'api_request', `Ollama Request: ${ollamaModel} (${ollamaMessages.length} messages)`);
+          if (socket) {
+            sendLog(socket, this.id, 'api_request', `Ollama Request: ${ollamaModel} (${ollamaMessages.length} messages)`);
+            socket.emit('agent_status', { agentId: this.id, status: 'working', message: `Thinking with Ollama (${ollamaModel})...` });
+          }
           
           this.abortController = new AbortController();
-          const timeoutId = setTimeout(() => this.abortController?.abort(), 60000); // 60s timeout
+          const timeoutId = setTimeout(() => this.abortController?.abort(), 300000); // 300s timeout (allows model load + long generation)
+          const activityInterval = setInterval(() => {
+            this.lastActivity = Date.now();
+          }, 10000);
           
           let res;
           try {
             res = await fetch('http://localhost:11434/api/chat', {
               method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 model: ollamaModel,
                 messages: ollamaMessages,
@@ -1577,9 +1701,13 @@ ${taskContent}
             if (this.shouldStop || err.name === 'AbortError') {
               throw new Error('Ollama request cancelled or timed out');
             }
+            if (err.cause?.code === 'ECONNREFUSED' || err.message?.includes('fetch failed')) {
+              throw new Error('Ollama server is not reachable at http://localhost:11434. Please ensure Ollama is running (`ollama serve`).');
+            }
             throw err;
           } finally {
             clearTimeout(timeoutId);
+            clearInterval(activityInterval);
           }
 
           if (!res.ok) {
@@ -1588,20 +1716,28 @@ ${taskContent}
           }
           
           const result = await res.json();
+          const content = result.message?.content || '';
+          const thinking = result.message?.thinking || '';
+          const resolvedText = content.trim() !== '' ? content : (thinking.trim() !== '' ? thinking : '');
+
           response = {
             functionCalls: result.message?.tool_calls?.map(tc => ({
               name: tc.function.name,
-              args: tc.function.arguments
+              args: typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments
             })),
-            text: result.message?.content,
+            text: resolvedText,
             usage: {
-              promptTokens: result.prompt_eval_count,
-              candidatesTokens: result.eval_count,
+              promptTokens: result.prompt_eval_count || 0,
+              candidatesTokens: result.eval_count || 0,
               totalTokens: (result.prompt_eval_count || 0) + (result.eval_count || 0)
             }
           };
         }
         
+        if (response && response.usage) {
+          response.usage.durationMs = Date.now() - __llmStartTime;
+        }
+
         sendLog(socket, this.id, 'api_response', `Received API response`, { 
           hasFunctionCalls: !!response.functionCalls && response.functionCalls.length > 0, 
           hasText: !!response.text,
@@ -1704,13 +1840,15 @@ ${taskContent}
               usage: response.usage
             };
             
-            // Emit to the specific socket (important for Telegram mockSocket)
-            socket.emit('agent_message', msgData);
-            
-            // Also emit globally so UI updates survive socket reconnects
-            // (We check if socket is not mockSocket by checking if io is available)
-            if (typeof io !== 'undefined' && socket !== io) {
-               io.emit('agent_message', msgData);
+            // Emit globally so all connected UI clients receive the message once
+            if (typeof io !== 'undefined') {
+              io.emit('agent_message', msgData);
+            } else if (socket) {
+              socket.emit('agent_message', msgData);
+            }
+            // For mockSocket (like Telegram bot which is not a connected socket.io client), emit directly
+            if (socket && (socket.isMockSocket || !socket.id)) {
+              socket.emit('agent_message', msgData);
             }
 
             // Update cumulative stats
@@ -1742,8 +1880,12 @@ ${taskContent}
       if (activeAgents.has(this.id)) {
         activeAgents.get(this.id).status = 'idle';
       }
+      dbPromise.then(db => db.run('UPDATE active_agents SET status = ? WHERE agentId = ?', ['idle', this.id]).catch(() => {}));
       if (socket) socket.emit('agent_status', { agentId: this.id, status: 'idle' });
-      if (typeof io !== 'undefined') io.emit('agent_status', { agentId: this.id, status: 'idle' });
+      if (typeof io !== 'undefined') {
+        io.emit('agent_status', { agentId: this.id, status: 'idle' });
+        io.emit('active_agents', Array.from(activeAgents.values()));
+      }
     }
   }
 }
@@ -1753,20 +1895,42 @@ agentInstances.set('orchestrator', orchestrator);
 
 const scheduledCronTasks = new Map();
 
-function scheduleCronJob(jobId, cronExpr, task, jobName) {
+function scheduleCronJob(jobId, cronExpr, task, jobName, agentId = 'orchestrator') {
   const taskObj = cron.schedule(cronExpr, async () => {
-    console.log(`[Job ${jobId}] Running: ${jobName || 'Unnamed'}`);
+    console.log(`[Job ${jobId}] Running: ${jobName || 'Unnamed'} (Agent: ${agentId})`);
     const db = await dbPromise;
     await db.run('UPDATE scheduled_jobs SET lastRun = ? WHERE id = ?', [new Date().toISOString(), jobId]);
     
     const mockSocket = {
       emit: (event, data) => {
-        io.emit(event, data); 
+        io.emit(event, data);
+        if (event === 'agent_message' && !data.isTool && data.content) {
+          if (lastTelegramChatId && tgBot) {
+            try {
+              const header = `🤖 *[${jobName || 'Scheduled Job'}]* (${agentId})\n\n`;
+              tgBot.telegram.sendMessage(lastTelegramChatId, `${header}${data.content}`, { parse_mode: 'Markdown' }).catch(() => {
+                tgBot.telegram.sendMessage(lastTelegramChatId, `[${jobName || 'Scheduled Job'}] (${agentId})\n\n${data.content}`);
+              });
+            } catch (e) {
+              console.error('Failed to send cron notification to Telegram:', e);
+            }
+          }
+        }
       }
     };
     
-    sendLog(mockSocket, 'system', 'job_start', `Running scheduled job: ${jobName || jobId}`);
-    await orchestrator.processMessage(`[SCHEDULED JOB] ${task}`, mockSocket);
+    sendLog(mockSocket, agentId, 'job_start', `Running scheduled job: ${jobName || jobId}`);
+    let targetAgent = agentInstances.get(agentId);
+    if (!targetAgent) {
+      const systemPath = path.join(process.cwd(), 'agents', agentId, 'system.md');
+      if (fs.existsSync(systemPath)) {
+        targetAgent = new Agent(agentId, systemPath);
+        agentInstances.set(agentId, targetAgent);
+      } else {
+        targetAgent = orchestrator;
+      }
+    }
+    await targetAgent.processMessage(`[SCHEDULED JOB] ${task}`, mockSocket);
   });
   scheduledCronTasks.set(jobId, taskObj);
 }
@@ -1775,7 +1939,7 @@ async function loadScheduledJobs() {
   const db = await dbPromise;
   const jobs = await db.all('SELECT * FROM scheduled_jobs WHERE status = "active"');
   jobs.forEach(job => {
-    scheduleCronJob(job.id, job.cron, job.task, job.name);
+    scheduleCronJob(job.id, job.cron, job.task, job.name, job.agentId || 'orchestrator');
   });
   console.log(`Restored ${jobs.length} scheduled jobs`);
 }
@@ -1799,9 +1963,9 @@ setInterval(() => {
 setInterval(() => {
   const now = Date.now();
   for (const [id, agent] of agentInstances) {
-    if (agent.processing && (now - agent.lastActivity > 120000)) {
-      console.warn(`[Watchdog] Agent ${id} seems stuck (no activity for 120s). Force aborting.`);
-      sendLog(null, id, 'error', '⚠️ WATCHDOG: Agent stalled for >120s. Forcefully resetting...', null, 'error');
+    if (agent.processing && (now - agent.lastActivity > 300000)) {
+      console.warn(`[Watchdog] Agent ${id} seems stuck (no activity for 300s). Force aborting.`);
+      sendLog(null, id, 'error', '⚠️ WATCHDOG: Agent stalled for >300s. Forcefully resetting...', null, 'error');
       agent.stop();
       agent.processing = false;
       if (activeAgents.has(id)) activeAgents.get(id).status = 'idle';
@@ -1820,23 +1984,22 @@ async function summarizeAndPersist(socket) {
     if (history.length < 2) return; // Not enough context to learn
 
     const model = vertexAI.preview.getGenerativeModel({
-      model: 'gemini-3.1-flash-lite-preview',
+      model: 'gemini-2.5-flash-lite',
     });
 
-    const conversationText = history.map(h => `${h.role}: ${JSON.parse(h.parts).map(p => p.text || '[Tool/Other]').join(' ')}`).join('\n');
+    const conversationText = history.map(h => `${h.role}: ${(JSON.parse(h.parts) || []).map(p => p.text || '[Tool/Other]').join(' ')}`).join('\n');
     
-    const result = await model.generateContent(`Analyze this conversation and extract:
+    const result = await model.generateContent(`Analyze this conversation and extract concise long-term facts:
 1. Key facts/decisions made.
-2. New skills or tools added.
-3. Project-specific context.
-4. Long-term preferences.
+2. Project-specific context or preferences.
 
-Format the output as a concise Markdown summary to be appended to the "Long-term Memory" file.
+Keep the summary very concise (max 150 words).
 
 CONVERSATION:
-${conversationText}`);
+${conversationText.slice(-8000)}`);
 
-    const analysis = result.response.candidates[0].content.parts[0].text;
+    const analysis = result.response.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!analysis) return;
     
     const memoryDir = path.join(process.cwd(), 'memory');
     if (!fs.existsSync(memoryDir)) fs.mkdirSync(memoryDir);
@@ -1845,9 +2008,23 @@ ${conversationText}`);
     let currentMemory = '';
     if (fs.existsSync(memoryPath)) currentMemory = fs.readFileSync(memoryPath, 'utf8');
     
-    const updatedMemory = `${currentMemory}\n\n## Session Extract: ${new Date().toISOString()}\n${analysis}`;
-    fs.writeFileSync(memoryPath, updatedMemory);
+    let updatedMemory = `${currentMemory}\n\n## Session Extract: ${new Date().toISOString().split('T')[0]}\n${analysis}`;
     
+    // If memory file exceeds 8KB, compact it to keep token usage low
+    if (updatedMemory.length > 8000) {
+      try {
+        const compactResult = await model.generateContent(`Consolidate and deduplicate this Long-term Memory file into a clean, concise structured profile (Core Profile, Active Projects, Preferences). Max 500 words.
+
+MEMORY TO CONSOLIDATE:
+${updatedMemory}`);
+        const compacted = compactResult.response.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (compacted) updatedMemory = compacted;
+      } catch (compactErr) {
+        console.warn('Memory compaction skipped:', compactErr.message);
+      }
+    }
+
+    fs.writeFileSync(memoryPath, updatedMemory);
     if (socket) sendLog(socket, 'orchestrator', 'system', 'Long-term memory successfully updated.');
   } catch (e) {
     console.error('Failed to summarize and persist:', e);
@@ -1950,9 +2127,10 @@ async function systemReset(socket) {
 async function loadActiveAgents() {
   try {
     const db = await dbPromise;
+    await db.run("UPDATE active_agents SET status = 'idle'");
     const rows = await db.all('SELECT * FROM active_agents');
     rows.forEach(row => {
-      activeAgents.set(row.agentId, { id: row.agentId, name: row.name, role: row.role, status: row.status });
+      activeAgents.set(row.agentId, { id: row.agentId, name: row.name, role: row.role, status: 'idle' });
     });
     console.log(`Restored ${rows.length} agents from database`);
   } catch (e) {
@@ -2050,10 +2228,17 @@ io.on('connection', (socket) => {
 
     // Determine target agent
     const targetId = data.targetAgentId || 'orchestrator';
-    const targetAgent = agentInstances.get(targetId) || orchestrator;
-    
-    if (targetId !== 'orchestrator' && !agentInstances.has(targetId)) {
-      sendLog(socket, 'system', 'error', `Target agent ${targetId} not found. Routing to orchestrator.`);
+    let targetAgent = agentInstances.get(targetId);
+    if (!targetAgent && availableAgents.has(targetId)) {
+      const agentInfo = availableAgents.get(targetId);
+      targetAgent = new Agent(targetId, agentInfo.systemPromptPath);
+      agentInstances.set(targetId, targetAgent);
+    }
+    if (!targetAgent) {
+      if (targetId !== 'orchestrator') {
+        sendLog(socket, 'system', 'error', `Target agent ${targetId} not found. Routing to orchestrator.`);
+      }
+      targetAgent = orchestrator;
     }
 
     await targetAgent.processMessage(data.content, socket, data.provider, data.images);
@@ -2127,22 +2312,18 @@ io.on('connection', (socket) => {
       if (agent.processing) {
         agent.stop();
         stopped++;
-        // Sync both maps
         const uiAgent = activeAgents.get(id);
         if (uiAgent) uiAgent.status = 'idle';
         io.emit('agent_status', { agentId: id, status: 'idle', message: 'Halted by user' });
       }
     }
     
-    // If we reported 0 but the UI thinks someone is working, force a sync
-    if (stopped === 0) {
-      for (const [id, agent] of activeAgents.entries()) {
-        if (agent.status === 'working') {
-          agent.status = 'idle';
-          io.emit('agent_status', { agentId: id, status: 'idle', message: 'Force reset' });
-        }
-      }
+    // Always force all activeAgents to idle on stop
+    for (const [id, agent] of activeAgents.entries()) {
+      agent.status = 'idle';
     }
+    dbPromise.then(db => db.run("UPDATE active_agents SET status = 'idle'").catch(() => {}));
+    io.emit('active_agents', Array.from(activeAgents.values()));
 
     sendLog(socket, 'orchestrator', 'system', `⏹ Generation stopped (${stopped} active agent(s) halted)`, { stoppedCount: stopped }, 'warning');
     socket.emit('agent_message', { agentId: 'orchestrator', content: '_Generation stopped by user._', isTool: true });
@@ -2242,7 +2423,7 @@ io.on('connection', (socket) => {
     
     try {
       const model = vertexAI.preview.getGenerativeModel({
-        model: 'gemini-3.1-flash-lite-preview',
+        model: 'gemini-2.5-flash-lite',
         generationConfig: {
           responseMimeType: 'application/json',
           responseSchema: {
@@ -2283,12 +2464,15 @@ io.on('connection', (socket) => {
       let taskPrompt = '';
       
       // Determine system prompt path
-      const systemPath = agentId === 'orchestrator' 
-        ? path.join(process.cwd(), 'agents', 'orchestrator', 'system.md')
-        : path.join(process.cwd(), 'agents', 'orchestrator', 'system.md'); // Default for now
+      const systemPath = path.join(process.cwd(), 'agents', agentId, 'system.md');
       
       try {
-        systemPrompt = fs.readFileSync(systemPath, 'utf8');
+        if (fs.existsSync(systemPath)) {
+          systemPrompt = fs.readFileSync(systemPath, 'utf8');
+        } else {
+          const fallbackPath = path.join(process.cwd(), 'agents', 'orchestrator', 'system.md');
+          systemPrompt = fs.existsSync(fallbackPath) ? fs.readFileSync(fallbackPath, 'utf8') : 'No rules defined.';
+        }
       } catch (e) {
         systemPrompt = 'No rules defined.';
       }
@@ -2299,21 +2483,39 @@ io.on('connection', (socket) => {
         : path.join(process.cwd(), 'tasks', `${agentId}_task.md`);
       
       try {
-        taskPrompt = fs.readFileSync(taskPath, 'utf8');
+        if (fs.existsSync(taskPath)) {
+          taskPrompt = fs.readFileSync(taskPath, 'utf8');
+        } else {
+          taskPrompt = 'No active task.';
+        }
       } catch (e) {
         taskPrompt = 'No active task.';
       }
 
       // Get tools (Skills)
-      const tools = toolDeclarations[0].functionDeclarations;
+      const toolDecl = getToolDeclarations();
+      const tools = (toolDecl && toolDecl[0] && toolDecl[0].functionDeclarations) ? toolDecl[0].functionDeclarations : [];
 
       // Get history (Memory)
       let longTermMemory = '';
       try {
         const memoryPath = path.join(process.cwd(), 'memory', `${agentId}_memory.md`);
-        longTermMemory = fs.readFileSync(memoryPath, 'utf8');
+        if (fs.existsSync(memoryPath)) {
+          longTermMemory = fs.readFileSync(memoryPath, 'utf8');
+        } else {
+          longTermMemory = 'No long-term memory stored.';
+        }
       } catch (e) {
         longTermMemory = 'No long-term memory stored.';
+      }
+
+      // Get scheduled jobs for this agent
+      let jobs = [];
+      try {
+        const db = await dbPromise;
+        jobs = await db.all('SELECT id, name, cron, task, status, lastRun, agentId FROM scheduled_jobs WHERE agentId = ? OR agentId = "orchestrator" ORDER BY id DESC', [agentId]);
+      } catch (e) {
+        console.error('Failed to load jobs for agent details:', e);
       }
 
       socket.emit('agent_details', {
@@ -2323,7 +2525,8 @@ io.on('connection', (socket) => {
         memory: {
           task: taskPrompt,
           longTerm: longTermMemory
-        }
+        },
+        jobs
       });
     } catch (error) {
       console.error('Failed to fetch agent details:', error);

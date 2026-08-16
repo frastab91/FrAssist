@@ -1,0 +1,2 @@
+# Task for researcher
+Research digital nomad opportunities in Calabria, focusing on internet infrastructure, cost of living, community, and specific towns like Scalea. Gather statistics and facts to include in the blog post. Use web_search and browser_action extensively. Cross-reference multiple sources and provide citations. If you encounter a paywall, use browser_action to bypass it or find alternative sources.

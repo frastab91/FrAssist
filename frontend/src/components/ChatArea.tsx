@@ -144,6 +144,7 @@ export function ChatArea({
                 <span>Input: {msg.usage.promptTokens}</span>
                 <span>Output: {msg.usage.candidatesTokens}</span>
                 <span>Total: {msg.usage.totalTokens}</span>
+                {msg.usage.durationMs && <span>Time: {(msg.usage.durationMs / 1000).toFixed(1)}s</span>}
               </div>
             )}
           </div>

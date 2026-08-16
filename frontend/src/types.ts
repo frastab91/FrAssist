@@ -8,7 +8,7 @@ export type Message = {
   images?: string[];
   audioUrl?: string;
   isTool?: boolean;
-  usage?: { promptTokens: number; candidatesTokens: number; totalTokens: number };
+  usage?: { promptTokens: number; candidatesTokens: number; totalTokens: number; durationMs?: number };
   toolExecutions?: { toolName: string; args: string }[];
 };
 
@@ -40,6 +40,15 @@ export type AgentDetails = {
     task: string;
     longTerm: string;
   };
+  jobs?: {
+    id: number;
+    name: string;
+    cron: string;
+    task: string;
+    status: string;
+    lastRun?: string;
+    agentId?: string;
+  }[];
 };
 
 export type SystemStats = {

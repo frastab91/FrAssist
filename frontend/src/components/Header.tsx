@@ -76,7 +76,7 @@ export function Header({
           style={{ padding: '0.45rem 0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', fontSize: '0.85rem', cursor: 'pointer' }}
         >
           <optgroup label="Cloud Providers">
-            <option value="gemini">Vertex Agents (Gemini 2.0)</option>
+            <option value="gemini">Vertex Agents (Gemini 2.5 Flash Lite)</option>
             <option value="vertex_research">Deep Research Agent</option>
             <option value="perplexity">Perplexity Sonar</option>
           </optgroup>
@@ -90,7 +90,7 @@ export function Header({
               ))
             ) : (
               <>
-                <option value="ollama">Ollama (gemma2:2b)</option>
+                <option value="ollama">Ollama (Auto-Detect)</option>
                 <option value="ollama_qwen">Ollama (qwen2.5-coder:14b)</option>
               </>
             )}
@@ -100,7 +100,8 @@ export function Header({
         {aiProvider.startsWith('ollama') && (
           <button
             onClick={() => {
-              const model = aiProvider.startsWith('ollama:') ? aiProvider.substring(7) : (aiProvider === 'ollama_qwen' ? 'qwen2.5-coder:14b' : 'gemma2:2b');
+              const defaultModel = ollamaStatus?.availableModels?.[0]?.name || 'qwen2.5-coder:14b';
+              const model = aiProvider.startsWith('ollama:') ? aiProvider.substring(7) : (aiProvider === 'ollama_qwen' ? 'qwen2.5-coder:14b' : defaultModel);
               socket?.emit('run_ollama_model', { model });
             }}
             title="Run/Pull Model via CLI"

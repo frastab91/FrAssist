@@ -95,7 +95,7 @@ export default function App() {
   const [newAgent, setNewAgent] = useState({ name: '', role: '', task: '', scope: '', memory: '' });
   
   const [showInspector, setShowInspector] = useState(false);
-  const [inspectorTab, setInspectorTab] = useState<'rules' | 'skills' | 'memory'>('rules');
+  const [inspectorTab, setInspectorTab] = useState<'rules' | 'skills' | 'schedule' | 'memory'>('rules');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedAgentDetails, setSelectedAgentDetails] = useState<AgentDetails | null>(null);
   const [isFetchingDetails, setIsFetchingDetails] = useState(false);
@@ -197,18 +197,31 @@ export default function App() {
     });
 
     newSocket.on('agent_message', (data: { agentId: string; content: string; image?: string; images?: string[]; usage?: any; isTool?: boolean }) => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          role: 'assistant',
-          agentId: data.agentId,
-          content: data.content,
-          images: data.images ? data.images : (data.image ? [data.image] : undefined),
-          usage: data.usage,
-          isTool: data.isTool
-        },
-      ]);
+      setMessages((prev) => {
+        const lastMsg = prev[prev.length - 1];
+        if (
+          lastMsg &&
+          lastMsg.role === 'assistant' &&
+          lastMsg.agentId === data.agentId &&
+          lastMsg.content === data.content &&
+          JSON.stringify(lastMsg.usage) === JSON.stringify(data.usage)
+        ) {
+          return prev;
+        }
+
+        return [
+          ...prev,
+          {
+            id: Date.now().toString() + Math.random().toString(36).substring(7),
+            role: 'assistant',
+            agentId: data.agentId,
+            content: data.content,
+            images: data.images ? data.images : (data.image ? [data.image] : undefined),
+            usage: data.usage,
+            isTool: data.isTool
+          },
+        ];
+      });
       if (data.content && !data.isTool) {
         speak(data.content);
       }
@@ -326,6 +339,7 @@ export default function App() {
         },
       ]);
       setIsTyping(false);
+      setIsFetchingDetails(false);
     });
 
     newSocket.on('system_heartbeat', (data: any) => {

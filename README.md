@@ -1,6 +1,6 @@
 # Multi-Agent Personal Assistant
 
-A sophisticated, multi-modal orchestration system that uses both Google Gemini (Flash 2.0) and local Ollama (Gemma) to browse the web, edit files, and manage tasks.
+A sophisticated, multi-modal orchestration system that uses both Google Gemini (Flash 2.5 Lite) and local Ollama (Gemma) to browse the web, edit files, and manage tasks.
 
 ## 🚀 Features
 - **Dual-Provider Orchestration:** Seamlessly switch between Gemini and Ollama for tool calling.
