@@ -102,7 +102,10 @@ export async function execute(args) {
         case 'reset':
         case 'stop':
         case 'close':
-          return { output: 'Ego Lite session reset.' };
+        case 'close_tab':
+        case 'complete':
+          const closeRes = await EgoAdapter.close();
+          return { output: formatRes(closeRes) || 'Ego Lite session closed and task space completed.' };
         
         default:
           return { error: `Unsupported action: ${action}` };

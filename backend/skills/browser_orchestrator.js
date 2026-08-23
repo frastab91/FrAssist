@@ -26,7 +26,8 @@ export async function execute(args) {
         return { result: 'success', message: 'Ego Lite session ready.' };
       }
       if (action === 'close') {
-        return { result: 'success', message: 'Ego Lite session finished.' };
+        const res = await EgoAdapter.close();
+        return { result: 'success', message: res || 'Ego Lite session closed and task space completed.' };
       }
       if (action === 'smart_capture') {
         await EgoAdapter.scroll('down', 800);

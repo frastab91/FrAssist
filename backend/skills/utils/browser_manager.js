@@ -9,8 +9,56 @@ chromium.use(StealthPlugin());
 let activeContext = null;
 let activePage = null;
 let elementMap = new Map();
+let lastActivity = Date.now();
+let idleCheckInterval = null;
+let taskGraceTimeout = null;
 
 export class BrowserManager {
+  static getIdleTimeoutMs() {
+    return parseInt(process.env.BROWSER_IDLE_TIMEOUT_MS, 10) || 180000; // default 3 minutes
+  }
+
+  static recordActivity() {
+    lastActivity = Date.now();
+    if (taskGraceTimeout) {
+      clearTimeout(taskGraceTimeout);
+      taskGraceTimeout = null;
+    }
+    this.startIdleWatchdog();
+  }
+
+  static startIdleWatchdog() {
+    if (!idleCheckInterval) {
+      idleCheckInterval = setInterval(async () => {
+        if (activeContext && Date.now() - lastActivity > this.getIdleTimeoutMs()) {
+          const idleSec = Math.round((Date.now() - lastActivity) / 1000);
+          console.log(`[BrowserManager] Idle timeout (${idleSec}s) reached. Cleanly stopping browser context.`);
+          await this.stop();
+        }
+      }, 30000);
+      if (idleCheckInterval.unref) {
+        idleCheckInterval.unref();
+      }
+    }
+  }
+
+  static scheduleTaskCompletionGrace(delayMs = 60000) {
+    if (!activeContext) return;
+    if (taskGraceTimeout) {
+      clearTimeout(taskGraceTimeout);
+    }
+    taskGraceTimeout = setTimeout(async () => {
+      taskGraceTimeout = null;
+      if (activeContext) {
+        console.log(`[BrowserManager] Agent task finished and idle grace period (${Math.round(delayMs / 1000)}s) elapsed. Cleanly stopping browser session.`);
+        await this.stop();
+      }
+    }, delayMs);
+    if (taskGraceTimeout.unref) {
+      taskGraceTimeout.unref();
+    }
+  }
+
   static getProfilePath() {
     return path.join(process.cwd(), 'data', 'browser_stealth_profile');
   }
@@ -25,6 +73,7 @@ export class BrowserManager {
   }
 
   static async getContext() {
+    this.recordActivity();
     if (activeContext) {
       try {
         const pages = activeContext.pages();
@@ -118,6 +167,14 @@ export class BrowserManager {
   }
 
   static async stop() {
+    if (taskGraceTimeout) {
+      clearTimeout(taskGraceTimeout);
+      taskGraceTimeout = null;
+    }
+    if (idleCheckInterval) {
+      clearInterval(idleCheckInterval);
+      idleCheckInterval = null;
+    }
     if (activeContext) {
       try {
         await activeContext.close();

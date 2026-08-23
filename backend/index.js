@@ -19,6 +19,7 @@ import cron from 'node-cron';
 import os from 'os';
 import { initWhatsApp, getWhatsAppStatus, disconnectWhatsApp, connectToWhatsApp, getWhatsAppMessages, getWhatsAppChats, getWhatsAppChatMessages, sendWhatsAppMessage, evaluateAutoReply, resolveContactDisplayName, getWhatsAppModel, setWhatsAppModel, markWhatsAppMessageReplied, setAutoReplyStatus, getAutoReplyContacts, isAutoReplyEnabled, exportAllWhatsAppConversationsToJson, disableAllAutoReplies, clearWhatsAppChatHistory, scheduleWhatsAppMessage, getScheduledWhatsAppMessages, cancelScheduledWhatsAppMessage, deleteScheduledWhatsAppMessage, sendScheduledWhatsAppMessageNow, startWhatsAppScheduler } from './services/whatsapp.js';
 import { BrowserManager } from './skills/utils/browser_manager.js';
+import { EgoAdapter } from './skills/utils/ego_adapter.js';
 import { recordTokenUsage, estimateTokens, setTokenTrackerIO, setTokenTrackerDb } from './services/tokenTracker.js';
 
 let dbPromise = null;
@@ -3116,6 +3117,14 @@ ${taskContent}
           io.emit('active_agents', Array.from(activeAgents.values()));
         }
       }
+
+      // Schedule idle grace period cleanup for browser sessions (Ego-Lite and Stealth Playwright)
+      try {
+        EgoAdapter.scheduleTaskCompletionGrace(60000);
+        BrowserManager.scheduleTaskCompletionGrace(60000);
+      } catch (e) {
+        console.warn('Error scheduling browser idle grace:', e.message);
+      }
     }
   }
 }
@@ -3406,10 +3415,16 @@ async function systemReset(socket) {
   await summarizeAndPersist(socket);
   await new Promise(r => setTimeout(r, 800));
 
-  // 1. Stop all active agents
-  if (socket) sendLog(socket, 'orchestrator', 'system', 'Terminating active sub-agents...');
+  // 1. Stop all active agents and browser sessions
+  if (socket) sendLog(socket, 'orchestrator', 'system', 'Terminating active sub-agents and closing browser sessions...');
   for (const [id, agent] of agentInstances.entries()) {
     agent.stop();
+  }
+  try {
+    await EgoAdapter.closeAllActiveSpaces();
+    await BrowserManager.stop();
+  } catch (e) {
+    console.error('Failed to clean up browser sessions during reset:', e);
   }
   await new Promise(r => setTimeout(r, 500));
 

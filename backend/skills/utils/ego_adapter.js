@@ -35,11 +35,130 @@ function normalizeSelector(sel) {
 }
 
 export class EgoAdapter {
+  static activeSpaces = new Set();
+  static lastActivity = Date.now();
+  static idleCheckInterval = null;
+  static taskGraceTimeout = null;
+
   static isAvailable() {
     return fs.existsSync(EGO_BIN);
   }
 
+  static getIdleTimeoutMs() {
+    return parseInt(process.env.BROWSER_IDLE_TIMEOUT_MS, 10) || 180000; // default 3 minutes
+  }
+
+  static recordActivity(name = 'FrAssist Task') {
+    this.activeSpaces.add(name);
+    this.lastActivity = Date.now();
+    if (this.taskGraceTimeout) {
+      clearTimeout(this.taskGraceTimeout);
+      this.taskGraceTimeout = null;
+    }
+    this.startIdleWatchdog();
+  }
+
+  static startIdleWatchdog() {
+    if (!this.idleCheckInterval) {
+      this.idleCheckInterval = setInterval(async () => {
+        if (this.activeSpaces.size > 0 && Date.now() - this.lastActivity > this.getIdleTimeoutMs()) {
+          const idleSec = Math.round((Date.now() - this.lastActivity) / 1000);
+          console.log(`[EgoAdapter] Idle timeout (${idleSec}s) reached. Cleanly completing and closing task spaces.`);
+          await this.closeAllActiveSpaces();
+        }
+      }, 30000);
+      if (this.idleCheckInterval.unref) {
+        this.idleCheckInterval.unref();
+      }
+    }
+  }
+
+  static scheduleTaskCompletionGrace(delayMs = 60000) {
+    if (this.activeSpaces.size === 0) return;
+    if (this.taskGraceTimeout) {
+      clearTimeout(this.taskGraceTimeout);
+    }
+    this.taskGraceTimeout = setTimeout(async () => {
+      this.taskGraceTimeout = null;
+      if (this.activeSpaces.size > 0) {
+        console.log(`[EgoAdapter] Agent task finished and idle grace period (${Math.round(delayMs / 1000)}s) elapsed. Cleanly completing and closing task spaces.`);
+        await this.closeAllActiveSpaces();
+      }
+    }, delayMs);
+    if (this.taskGraceTimeout.unref) {
+      this.taskGraceTimeout.unref();
+    }
+  }
+
+  static async completeTaskSpace(name = 'FrAssist Task') {
+    if (!this.isAvailable()) return 'Ego binary not available.';
+    const nameJson = JSON.stringify(name);
+    const script = `
+const task = await useOrCreateTaskSpace(${nameJson});
+if (task) {
+  try {
+    await completeTaskSpace(task.name || task.id);
+  } catch (e) {}
+}
+cliLog('Task space completed: ' + ${nameJson});
+`;
+    try {
+      const res = await this.runScript(script);
+      this.activeSpaces.delete(name);
+      return res;
+    } catch (e) {
+      this.activeSpaces.delete(name);
+      return `Failed to complete task space: ${e.message}`;
+    }
+  }
+
+  static async close(name = 'FrAssist Task') {
+    if (!this.isAvailable()) return 'Ego binary not available.';
+    const nameJson = JSON.stringify(name);
+    const script = `
+const task = await useOrCreateTaskSpace(${nameJson});
+if (task) {
+  try {
+    await js(String.raw\`(() => { try { window.close(); } catch(e) {} })()\`);
+  } catch (e) {}
+  try {
+    await completeTaskSpace(task.name || task.id);
+  } catch (e) {}
+}
+cliLog('Closed and completed task space: ' + ${nameJson});
+`;
+    try {
+      const res = await this.runScript(script);
+      this.activeSpaces.delete(name);
+      return res;
+    } catch (e) {
+      this.activeSpaces.delete(name);
+      return `Closed task space with warning: ${e.message}`;
+    }
+  }
+
+  static async closeAllActiveSpaces() {
+    if (this.taskGraceTimeout) {
+      clearTimeout(this.taskGraceTimeout);
+      this.taskGraceTimeout = null;
+    }
+    const spaces = this.activeSpaces.size > 0 ? Array.from(this.activeSpaces) : ['FrAssist Task'];
+    for (const space of spaces) {
+      try {
+        await this.close(space);
+      } catch (e) {
+        console.warn(`[EgoAdapter] Error closing space ${space}:`, e.message);
+      }
+    }
+    this.activeSpaces.clear();
+    if (this.idleCheckInterval) {
+      clearInterval(this.idleCheckInterval);
+      this.idleCheckInterval = null;
+    }
+  }
+
   static getTaskSpaceHeader(name = 'FrAssist Task') {
+    this.recordActivity(name);
     return `const task = await useOrCreateTaskSpace('${name}');\nif (task && task.ownership === 'user') { await claimTaskSpace(task.id); }`;
   }
 
