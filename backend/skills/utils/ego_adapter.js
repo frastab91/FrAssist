@@ -1,9 +1,26 @@
 import { exec } from 'child_process';
 import util from 'util';
 import fs from 'fs';
+import os from 'os';
+import path from 'path';
 const execPromise = util.promisify(exec);
 
-const EGO_BIN = '/Users/francescostabilito/.local/bin/ego-browser';
+function resolveEgoBin() {
+  if (process.env.EGO_BIN && fs.existsSync(process.env.EGO_BIN)) {
+    return process.env.EGO_BIN;
+  }
+  const homeBin = path.join(os.homedir(), '.local', 'bin', 'ego-browser');
+  if (fs.existsSync(homeBin)) {
+    return homeBin;
+  }
+  const usrLocalBin = '/usr/local/bin/ego-browser';
+  if (fs.existsSync(usrLocalBin)) {
+    return usrLocalBin;
+  }
+  return homeBin;
+}
+
+const EGO_BIN = resolveEgoBin();
 
 function normalizeSelector(sel) {
   if (!sel) return '';
