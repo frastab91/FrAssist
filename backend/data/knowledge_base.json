@@ -1,0 +1,262 @@
+[
+  {
+    "id": "faq_checkin_time",
+    "question": "What time is check-in?",
+    "answer": "Check-in is usually from 3:00 PM onward. If you are arriving earlier, contact us and we will do our best to accommodate your arrival time when possible.",
+    "topic": "check-in",
+    "tags": [
+      "check-in",
+      "arrival",
+      "guest support"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Guest arrival timing and access coordination.",
+    "participant": "guest support",
+    "links": [
+      "https://maps.app.goo.gl/Ee2f1gxhXAMAKSiv9"
+    ]
+  },
+  {
+    "id": "faq_checkout_time",
+    "question": "What time is check-out?",
+    "answer": "Check-out is by 10:00 AM. If you need a late departure, please contact us in advance and we will check if it is possible.",
+    "topic": "check-out",
+    "tags": [
+      "check-out",
+      "departure",
+      "guest support"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Guest departure timing and late departure requests.",
+    "participant": "guest support"
+  },
+  {
+    "id": "faq_keys_access",
+    "question": "Where are the keys and how do I access the apartment?",
+    "answer": "The keys are in the larger keybox next to the trash bin. The apartment code is 1506. Please use the keybox as instructed in your arrival guide.",
+    "topic": "arrival logistics",
+    "tags": [
+      "keys",
+      "access",
+      "arrival"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "How to access the apartment on arrival.",
+    "participant": "guest support",
+    "links": [
+      "https://www.tra-montiemare.it/guest?code=PZ52B7"
+    ]
+  },
+  {
+    "id": "faq_wifi",
+    "question": "Where can I find the WiFi password?",
+    "answer": "The WiFi network is 'TraMontieMare' and the password is 'NordSud3St1991!'. It is also available on the guest guide and on the modem.",
+    "topic": "wifi",
+    "tags": [
+      "wifi",
+      "internet"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Guest internet access instructions.",
+    "participant": "guest support",
+    "links": [
+      "https://www.tra-montiemare.it/guest?code=PZ52B7"
+    ]
+  },
+  {
+    "id": "faq_parking",
+    "question": "Is there parking nearby?",
+    "answer": "There is parking very close to the property. The nearest free parking area is around a 5-minute walk away. If you want exact directions, we can share the map and the best option depending on your arrival time.",
+    "topic": "parking",
+    "tags": [
+      "parking",
+      "arrival",
+      "car"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Parking instructions for guests arriving by car.",
+    "participant": "guest support",
+    "links": [
+      "https://maps.app.goo.gl/Ee2f1gxhXAMAKSiv9"
+    ]
+  },
+  {
+    "id": "faq_reach_apartment",
+    "question": "How do I reach the apartment?",
+    "answer": "Use the guest guide and the Google Maps/arrival directions link for the exact route, parking, and access instructions. We also have a short video guide that shows the route from the station and the arrival steps.",
+    "topic": "arrival logistics",
+    "tags": [
+      "arrival",
+      "directions",
+      "video"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Arrival instructions and route guidance.",
+    "participant": "guest support",
+    "links": [
+      "https://maps.app.goo.gl/Ee2f1gxhXAMAKSiv9",
+      "https://youtube.com/shorts/mb15eTNgQow?feature=shared",
+      "https://www.tra-montiemare.it/guest?code=PZ52B7"
+    ]
+  },
+  {
+    "id": "faq_laundry",
+    "question": "Where is the laundry detergent or washing pods?",
+    "answer": "There should be washing pods under the sink. If they are missing, please message us and we will ask the cleaning staff to check or replenish them.",
+    "topic": "amenities",
+    "tags": [
+      "laundry",
+      "amenities",
+      "cleaning"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Where to find laundry detergent.",
+    "participant": "guest support"
+  },
+  {
+    "id": "faq_train_station",
+    "question": "How do I get from the train station to the apartment?",
+    "answer": "The simplest route is a short taxi ride from the station. If you prefer public transport, local buses and regional trains are also available. We can send the exact directions and the best parking option depending on your arrival time.",
+    "topic": "transport",
+    "tags": [
+      "transport",
+      "arrival",
+      "train"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Station-to-property arrival guidance.",
+    "participant": "guest support",
+    "links": [
+      "https://maps.app.goo.gl/Ee2f1gxhXAMAKSiv9"
+    ]
+  },
+  {
+    "id": "faq_guest_guide",
+    "question": "Where is the guest guide?",
+    "answer": "The guest guide is in the property instructions link and includes access steps, WiFi, keybox instructions, parking, and local recommendations. Please use the link in your arrival email or message us if you need it again.",
+    "topic": "guest guide",
+    "tags": [
+      "guide",
+      "arrival",
+      "instructions"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Where to find the property guide and arrival instructions.",
+    "participant": "guest support",
+    "links": [
+      "https://www.tra-montiemare.it/guest?code=PZ52B7"
+    ]
+  },
+  {
+    "id": "faq_ac",
+    "question": "Is there air conditioning or heating?",
+    "answer": "Yes, the apartment has heating and air conditioning. Please use the control panel or ask us if you need help adjusting the system.",
+    "topic": "amenities",
+    "tags": [
+      "air conditioning",
+      "heating",
+      "amenities"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Climate control and in-apartment comfort.",
+    "participant": "guest support"
+  },
+  {
+    "id": "faq_guest_guide_recommendations",
+    "question": "Where is the guest guide and how do I find local recommendations?",
+    "answer": "The guest guide is the main arrival and local info page for the apartment. It includes access instructions, parking, WiFi, keybox details, and local recommendations for beaches, restaurants, groceries, and transport. Use the property guide link and the Google Maps arrival link below.",
+    "topic": "local recommendations",
+    "tags": [
+      "guide",
+      "parking",
+      "beach",
+      "restaurants",
+      "groceries"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Where to find the local guide and practical area information.",
+    "participant": "guest support",
+    "links": [
+      "https://www.tra-montiemare.it/guest?code=PZ52B7",
+      "https://maps.app.goo.gl/Ee2f1gxhXAMAKSiv9"
+    ]
+  },
+  {
+    "id": "faq_local_places",
+    "question": "Are there beaches, restaurants, and grocery options nearby?",
+    "answer": "Yes. The area around Scalea has beaches, local restaurants, and grocery options nearby. The guest guide and the local map links are the best place to find the most relevant spots for your stay, including beaches, food, and practical day-to-day stops.",
+    "topic": "local recommendations",
+    "tags": [
+      "beach",
+      "restaurants",
+      "groceries",
+      "local info"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Local beach, restaurant, and grocery guidance for guests.",
+    "participant": "guest support",
+    "links": [
+      "https://www.tra-montiemare.it",
+      "https://maps.app.goo.gl/Ee2f1gxhXAMAKSiv9",
+      "https://youtube.com/shorts/mb15eTNgQow?feature=shared"
+    ]
+  },
+  {
+    "id": "faq_google_review",
+    "question": "What is the Google profile link and how can guests leave a review for Tra-Montiemare?",
+    "answer": "Guests can leave a 5-star review on our Google profile using our direct review link: https://g.page/r/Cayc6lTPYTwfEBM/review. Our official Google Maps Business profile is https://maps.app.goo.gl/F33CuFGjuh6qmYGA7. We deeply appreciate 5-star reviews to support our hosting journey in Scalea.",
+    "topic": "reviews",
+    "tags": [
+      "review",
+      "google review",
+      "google profile",
+      "5 stars",
+      "recensione",
+      "feedback",
+      "rating",
+      "google maps"
+    ],
+    "source": "whatsapp_history",
+    "language": "en",
+    "summary": "Direct Google profile review link and Google Maps business page.",
+    "participant": "guest support",
+    "links": [
+      "https://g.page/r/Cayc6lTPYTwfEBM/review",
+      "https://maps.app.goo.gl/F33CuFGjuh6qmYGA7"
+    ]
+  },
+  {
+    "id": "faq_post_checkout_review_request",
+    "question": "How do we ask guests for a review after check-out or when requesting feedback?",
+    "answer": "After check-out or when guests express appreciation, we send a warm note asking for a 5-star Google review. In English: \"When you have some time, and if you would like to, we would appreciate a review on our google profile https://g.page/r/Cayc6lTPYTwfEBM/review (if you think we deserve, a 5 star would help a LOT!😊) 🙌❤️\". In Italian: \"Saremmo molto grati se tu e i tuoi amici di viaggio lasciate una recensione sulla nostra pagina Google https://g.page/r/Cayc6lTPYTwfEBM/review 😊 5⭐️ significherebbe molto!! 🫶\".",
+    "topic": "reviews",
+    "tags": [
+      "review request",
+      "post checkout",
+      "google review",
+      "5 star",
+      "recensione",
+      "template",
+      "feedback"
+    ],
+    "source": "whatsapp_history",
+    "language": "en",
+    "summary": "Standard message templates for requesting 5-star Google reviews from guests.",
+    "participant": "guest support",
+    "links": [
+      "https://g.page/r/Cayc6lTPYTwfEBM/review"
+    ]
+  }
+]

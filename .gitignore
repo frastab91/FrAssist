@@ -9,8 +9,12 @@ backend/.env
 frontend/.env
 
 # Local data and state
-data/
-backend/data/
+backend/data/*
+!backend/data/chroma_db/
+!backend/data/knowledge_base.json
+backend/data/trace.jsonl
+backend/data/browser_profile_*
+backend/data/whatsapp_auth/
 screenshots/
 backend/screenshots/
 *.sqlite
