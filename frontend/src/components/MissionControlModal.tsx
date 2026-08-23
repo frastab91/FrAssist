@@ -1,0 +1,1105 @@
+import React, { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import { 
+  X, 
+  Bot, 
+  Clock, 
+  CheckCircle2, 
+  XCircle, 
+  Play, 
+  Pause, 
+  Trash2, 
+  Edit3, 
+  Activity, 
+  Plus, 
+  RefreshCw, 
+  Square,
+  ChevronRight,
+  ChevronDown,
+  Calendar,
+  Eye
+} from 'lucide-react';
+import type { TrackerOverview } from '../types';
+import { Socket } from 'socket.io-client';
+
+type MissionControlModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  trackerData: TrackerOverview;
+  onRefresh: () => void;
+  socket: Socket | null;
+  onInspectAgent?: (agentId: string) => void;
+};
+
+export function MissionControlModal({
+  isOpen,
+  onClose,
+  trackerData,
+  onRefresh,
+  socket,
+  onInspectAgent,
+}: MissionControlModalProps) {
+  const [activeTab, setActiveTab] = useState<'agents' | 'approvals' | 'crons'>('agents');
+  
+  // Approval state
+  const [editingApprovalId, setEditingApprovalId] = useState<number | null>(null);
+  const [editedContent, setEditedContent] = useState<string>('');
+  const [approvalNotes, setApprovalNotes] = useState<{ [id: number]: string }>({});
+  const [isSubmittingApproval, setIsSubmittingApproval] = useState<number | null>(null);
+
+  // Expanded task previews
+  const [expandedTasks, setExpandedTasks] = useState<{ [agentId: string]: boolean }>({});
+
+  // New Cron Form state
+  const [showNewJobModal, setShowNewJobModal] = useState(false);
+  const [newJobName, setNewJobName] = useState('');
+  const [newJobCron, setNewJobCron] = useState('0 8 * * *');
+  const [newJobTask, setNewJobTask] = useState('');
+  const [newJobAgent, setNewJobAgent] = useState('orchestrator');
+  const [isSubmittingJob, setIsSubmittingJob] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  if (!isOpen) return null;
+
+  const showNotification = (msg: string) => {
+    setActionMessage(msg);
+    setTimeout(() => setActionMessage(null), 4000);
+  };
+
+  const handleApprovalAction = async (id: number, action: 'approve' | 'reject' | 'edit') => {
+    setIsSubmittingApproval(id);
+    try {
+      const res = await fetch(`/api/approvals/${id}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          editedContent: editingApprovalId === id ? editedContent : undefined,
+          notes: approvalNotes[id] || undefined
+        })
+      });
+      if (res.ok) {
+        showNotification(`Approval #${id} marked as ${action.toUpperCase()}`);
+        setEditingApprovalId(null);
+        onRefresh();
+      }
+    } catch (err: any) {
+      showNotification(`Action failed: ${err.message}`);
+    } finally {
+      setIsSubmittingApproval(null);
+    }
+  };
+
+  const handleCancelAgent = async (agentId: string) => {
+    if (socket) {
+      socket.emit('cancel_agent_task', { agentId });
+      showNotification(`Sent cancellation signal to ${agentId}`);
+      onRefresh();
+    } else {
+      try {
+        await fetch(`/api/agents/${agentId}/cancel`, { method: 'POST' });
+        showNotification(`Agent ${agentId} task cancelled`);
+        onRefresh();
+      } catch (err: any) {
+        showNotification(`Failed to cancel agent: ${err.message}`);
+      }
+    }
+  };
+
+  const handleTriggerJob = async (jobId: number) => {
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/run-now`, { method: 'POST' });
+      if (res.ok) {
+        showNotification(`Job #${jobId} triggered manually in background!`);
+        onRefresh();
+      }
+    } catch (err: any) {
+      showNotification(`Failed to trigger job: ${err.message}`);
+    }
+  };
+
+  const handleToggleJob = async (jobId: number) => {
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/toggle`, { method: 'POST' });
+      if (res.ok) {
+        showNotification(`Job #${jobId} status toggled`);
+        onRefresh();
+      }
+    } catch (err: any) {
+      showNotification(`Failed to toggle job: ${err.message}`);
+    }
+  };
+
+  const handleDeleteJob = async (jobId: number) => {
+    if (!window.confirm(`Are you sure you want to delete job #${jobId}?`)) return;
+    try {
+      const res = await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
+      if (res.ok) {
+        showNotification(`Job #${jobId} deleted`);
+        onRefresh();
+      }
+    } catch (err: any) {
+      showNotification(`Failed to delete job: ${err.message}`);
+    }
+  };
+
+  const handleCreateJob = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newJobName || !newJobCron || !newJobTask) {
+      alert('Please fill out all fields');
+      return;
+    }
+    setIsSubmittingJob(true);
+    try {
+      const res = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newJobName,
+          cron: newJobCron,
+          task: newJobTask,
+          agentId: newJobAgent
+        })
+      });
+      if (res.ok) {
+        showNotification(`Scheduled new job: "${newJobName}"`);
+        setShowNewJobModal(false);
+        setNewJobName('');
+        setNewJobTask('');
+        onRefresh();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to create job');
+      }
+    } catch (err: any) {
+      alert(`Error creating job: ${err.message}`);
+    } finally {
+      setIsSubmittingJob(false);
+    }
+  };
+
+  const workingAgentsCount = (trackerData.agents || []).filter(a => a.status === 'working' || a.status === 'waiting_approval').length;
+  const pendingApprovalsCount = (trackerData.pendingApprovals || []).filter(a => a.status === 'pending').length;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div 
+        className="modal-content tracker-modal" 
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          maxWidth: '920px',
+          width: '95%',
+          maxHeight: '90vh',
+          display: 'flex',
+          flexDirection: 'column',
+          background: '#ffffff',
+          borderRadius: '16px',
+          overflow: 'hidden',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+          border: '1px solid #e2e8f0'
+        }}
+      >
+        {/* Header */}
+        <div style={{
+          padding: '1.25rem 1.5rem',
+          borderBottom: '1px solid #e2e8f0',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+          color: '#ffffff'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+            <div style={{
+              width: '38px',
+              height: '38px',
+              borderRadius: '10px',
+              background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(59, 130, 246, 0.35)'
+            }}>
+              <Activity size={20} color="#ffffff" />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, letterSpacing: '-0.01em', color: '#ffffff' }}>Mission Control</h2>
+                <span style={{
+                  fontSize: '0.7rem',
+                  fontWeight: 600,
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  background: 'rgba(59, 130, 246, 0.2)',
+                  color: '#93c5fd',
+                  border: '1px solid rgba(59, 130, 246, 0.3)'
+                }}>
+                  OPS CENTER
+                </span>
+              </div>
+              <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8', marginTop: '2px' }}>
+                Live agent tracking, human-in-the-loop approvals, and background schedulers
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button
+              onClick={onRefresh}
+              title="Refresh State"
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: 'none',
+                color: '#e2e8f0',
+                padding: '0.5rem',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)')}
+            >
+              <RefreshCw size={16} />
+            </button>
+            <button
+              onClick={onClose}
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: 'none',
+                color: '#e2e8f0',
+                padding: '0.5rem',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)')}
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Action notification toast */}
+        {actionMessage && (
+          <div style={{
+            background: '#eff6ff',
+            color: '#1d4ed8',
+            padding: '0.6rem 1.25rem',
+            fontSize: '0.85rem',
+            fontWeight: 500,
+            borderBottom: '1px solid #bfdbfe',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+          }}>
+            <CheckCircle2 size={16} color="#2563eb" />
+            <span>{actionMessage}</span>
+          </div>
+        )}
+
+        {/* Navigation Tabs */}
+        <div style={{
+          display: 'flex',
+          background: '#f8fafc',
+          borderBottom: '1px solid #e2e8f0',
+          padding: '0 1rem'
+        }}>
+          <button
+            onClick={() => setActiveTab('agents')}
+            style={{
+              padding: '0.85rem 1.25rem',
+              border: 'none',
+              background: 'none',
+              cursor: 'pointer',
+              fontSize: '0.9rem',
+              fontWeight: activeTab === 'agents' ? 600 : 500,
+              color: activeTab === 'agents' ? '#2563eb' : '#64748b',
+              borderBottom: activeTab === 'agents' ? '2px solid #2563eb' : '2px solid transparent',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Bot size={17} />
+            <span>Active Agents & Tasks</span>
+            {workingAgentsCount > 0 && (
+              <span style={{
+                fontSize: '0.7rem',
+                padding: '2px 7px',
+                borderRadius: '10px',
+                background: '#dbeafe',
+                color: '#1d4ed8',
+                fontWeight: 700
+              }}>
+                {workingAgentsCount} Active
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('approvals')}
+            style={{
+              padding: '0.85rem 1.25rem',
+              border: 'none',
+              background: 'none',
+              cursor: 'pointer',
+              fontSize: '0.9rem',
+              fontWeight: activeTab === 'approvals' ? 600 : 500,
+              color: activeTab === 'approvals' ? '#ea580c' : '#64748b',
+              borderBottom: activeTab === 'approvals' ? '2px solid #ea580c' : '2px solid transparent',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Clock size={17} />
+            <span>Waiting On & Approvals</span>
+            {pendingApprovalsCount > 0 && (
+              <span style={{
+                fontSize: '0.7rem',
+                padding: '2px 7px',
+                borderRadius: '10px',
+                background: '#ffedd5',
+                color: '#c2410c',
+                fontWeight: 700
+              }}>
+                {pendingApprovalsCount} Waiting
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('crons')}
+            style={{
+              padding: '0.85rem 1.25rem',
+              border: 'none',
+              background: 'none',
+              cursor: 'pointer',
+              fontSize: '0.9rem',
+              fontWeight: activeTab === 'crons' ? 600 : 500,
+              color: activeTab === 'crons' ? '#059669' : '#64748b',
+              borderBottom: activeTab === 'crons' ? '2px solid #059669' : '2px solid transparent',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Calendar size={17} />
+            <span>Crons & Schedulers</span>
+            <span style={{
+              fontSize: '0.7rem',
+              padding: '2px 7px',
+              borderRadius: '10px',
+              background: '#e2e8f0',
+              color: '#475569',
+              fontWeight: 600
+            }}>
+              {(trackerData.jobs || []).length}
+            </span>
+          </button>
+        </div>
+
+        {/* Tab Body */}
+        <div style={{
+          padding: '1.5rem',
+          overflowY: 'auto',
+          flex: 1,
+          background: '#f8fafc'
+        }}>
+          {/* TAB 1: AGENTS & TASKS */}
+          {activeTab === 'agents' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
+                  Showing {(trackerData.agents || []).length} registered agents ({workingAgentsCount} running or awaiting review)
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }}>
+                {(trackerData.agents || []).map(agent => {
+                  const isWorking = agent.status === 'working';
+                  const isWaitingApproval = agent.status === 'waiting_approval';
+                  const isExpanded = !!expandedTasks[agent.id];
+
+                  return (
+                    <div 
+                      key={agent.id}
+                      style={{
+                        background: '#ffffff',
+                        borderRadius: '12px',
+                        border: isWorking ? '1px solid #93c5fd' : isWaitingApproval ? '1px solid #fdba74' : '1px solid #e2e8f0',
+                        boxShadow: isWorking ? '0 4px 12px rgba(59, 130, 246, 0.08)' : '0 1px 3px rgba(0,0,0,0.05)',
+                        padding: '1.25rem',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'center' }}>
+                          <div style={{
+                            width: '42px',
+                            height: '42px',
+                            borderRadius: '10px',
+                            background: isWorking ? '#dbeafe' : isWaitingApproval ? '#ffedd5' : '#f1f5f9',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            position: 'relative'
+                          }}>
+                            <Bot size={22} color={isWorking ? '#2563eb' : isWaitingApproval ? '#ea580c' : '#64748b'} />
+                            <span 
+                              style={{
+                                position: 'absolute',
+                                bottom: '-2px',
+                                right: '-2px',
+                                width: '12px',
+                                height: '12px',
+                                borderRadius: '50%',
+                                background: isWorking ? '#22c55e' : isWaitingApproval ? '#f97316' : '#94a3b8',
+                                border: '2px solid #ffffff'
+                              }}
+                            />
+                          </div>
+
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: '#0f172a' }}>
+                                {agent.name}
+                              </h3>
+                              <span style={{
+                                fontSize: '0.75rem',
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                background: isWorking ? '#dcfce7' : isWaitingApproval ? '#fef3c7' : '#f1f5f9',
+                                color: isWorking ? '#15803d' : isWaitingApproval ? '#b45309' : '#64748b',
+                                fontWeight: 600,
+                                textTransform: 'uppercase'
+                              }}>
+                                {agent.status}
+                              </span>
+                            </div>
+                            <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>
+                              Role: <span style={{ fontWeight: 500, color: '#334155' }}>{agent.role}</span> • ID: <code style={{ fontSize: '0.75rem', background: '#f1f5f9', padding: '1px 4px', borderRadius: '4px' }}>{agent.id}</code>
+                            </p>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          {isWorking && (
+                            <button
+                              onClick={() => handleCancelAgent(agent.id)}
+                              style={{
+                                padding: '0.4rem 0.8rem',
+                                background: '#fee2e2',
+                                color: '#b91c1c',
+                                border: '1px solid #fca5a5',
+                                borderRadius: '8px',
+                                fontSize: '0.8rem',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.35rem',
+                                transition: 'all 0.2s'
+                              }}
+                              onMouseEnter={e => (e.currentTarget.style.background = '#fecaca')}
+                              onMouseLeave={e => (e.currentTarget.style.background = '#fee2e2')}
+                            >
+                              <Square size={13} fill="#b91c1c" />
+                              Cancel Task
+                            </button>
+                          )}
+
+                          {onInspectAgent && (
+                            <button
+                              onClick={() => onInspectAgent(agent.id)}
+                              style={{
+                                padding: '0.4rem 0.8rem',
+                                background: '#f8fafc',
+                                color: '#475569',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '8px',
+                                fontSize: '0.8rem',
+                                fontWeight: 500,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.35rem'
+                              }}
+                            >
+                              <Eye size={14} />
+                              Inspector
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Current Task Box */}
+                      {agent.currentTask && (
+                        <div style={{ marginTop: '0.85rem' }}>
+                          <button
+                            onClick={() => setExpandedTasks(prev => ({ ...prev, [agent.id]: !prev[agent.id] }))}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.35rem',
+                              border: 'none',
+                              background: 'none',
+                              cursor: 'pointer',
+                              fontSize: '0.8rem',
+                              color: '#3b82f6',
+                              fontWeight: 500,
+                              padding: 0
+                            }}
+                          >
+                            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            <span>{isExpanded ? 'Hide Task Prompt' : 'View Current Task Prompt'}</span>
+                          </button>
+
+                          {isExpanded && (
+                            <div style={{
+                              marginTop: '0.5rem',
+                              padding: '0.75rem 1rem',
+                              background: '#f8fafc',
+                              borderRadius: '8px',
+                              border: '1px solid #e2e8f0',
+                              fontSize: '0.85rem',
+                              color: '#334155',
+                              maxHeight: '180px',
+                              overflowY: 'auto'
+                            }}>
+                              <ReactMarkdown>{agent.currentTask}</ReactMarkdown>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: WAITING ON & APPROVALS */}
+          {activeTab === 'approvals' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
+                  Review and sign off on drafts, content, and agent actions requiring human approval.
+                </span>
+              </div>
+
+              {(trackerData.pendingApprovals || []).length === 0 ? (
+                <div style={{
+                  padding: '3rem 1rem',
+                  textAlign: 'center',
+                  background: '#ffffff',
+                  borderRadius: '12px',
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <CheckCircle2 size={40} color="#22c55e" style={{ margin: '0 auto 0.75rem auto', display: 'block' }} />
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#0f172a', fontWeight: 600 }}>All Caught Up!</h3>
+                  <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+                    No drafts or agent decisions are currently waiting for your review.
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {(trackerData.pendingApprovals || []).map(approval => {
+                    const isPending = approval.status === 'pending';
+                    const isEditing = editingApprovalId === approval.id;
+                    const isSubmitting = isSubmittingApproval === approval.id;
+
+                    return (
+                      <div 
+                        key={approval.id}
+                        style={{
+                          background: '#ffffff',
+                          borderRadius: '12px',
+                          border: isPending ? '1px solid #f97316' : '1px solid #e2e8f0',
+                          boxShadow: isPending ? '0 4px 12px rgba(249, 115, 22, 0.08)' : '0 1px 3px rgba(0,0,0,0.05)',
+                          padding: '1.25rem',
+                          position: 'relative',
+                          overflow: 'hidden'
+                        }}
+                      >
+                        {isPending && (
+                          <div style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: '4px',
+                            background: 'linear-gradient(90deg, #ea580c 0%, #f97316 100%)'
+                          }} />
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600, color: '#0f172a' }}>
+                                {approval.title}
+                              </h3>
+                              <span style={{
+                                fontSize: '0.7rem',
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                background: isPending ? '#ffedd5' : approval.status === 'approved' ? '#dcfce7' : '#fee2e2',
+                                color: isPending ? '#c2410c' : approval.status === 'approved' ? '#15803d' : '#b91c1c',
+                                fontWeight: 700,
+                                textTransform: 'uppercase'
+                              }}>
+                                {approval.status}
+                              </span>
+                            </div>
+                            <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b', marginTop: '3px' }}>
+                              Requested by <span style={{ fontWeight: 600, color: '#334155' }}>{approval.agentId}</span> • Type: <code>{approval.type}</code> • {new Date(approval.createdAt).toLocaleTimeString()}
+                            </p>
+                          </div>
+                        </div>
+
+                        {approval.description && (
+                          <p style={{ fontSize: '0.85rem', color: '#475569', margin: '0 0 0.75rem 0' }}>
+                            {approval.description}
+                          </p>
+                        )}
+
+                        {/* Content Viewer / Editor */}
+                        <div style={{
+                          background: '#f8fafc',
+                          borderRadius: '8px',
+                          border: '1px solid #e2e8f0',
+                          padding: '1rem',
+                          marginBottom: '1rem'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
+                              {isEditing ? 'Edit Content' : 'Draft / Action Payload'}
+                            </span>
+                            {isPending && !isEditing && (
+                              <button
+                                onClick={() => {
+                                  setEditingApprovalId(approval.id);
+                                  setEditedContent(approval.content);
+                                }}
+                                style={{
+                                  border: 'none',
+                                  background: 'none',
+                                  color: '#2563eb',
+                                  fontSize: '0.8rem',
+                                  fontWeight: 500,
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.25rem'
+                                }}
+                              >
+                                <Edit3 size={13} />
+                                Edit Content
+                              </button>
+                            )}
+                          </div>
+
+                          {isEditing ? (
+                            <textarea
+                              value={editedContent}
+                              onChange={(e) => setEditedContent(e.target.value)}
+                              rows={8}
+                              style={{
+                                width: '100%',
+                                padding: '0.75rem',
+                                borderRadius: '6px',
+                                border: '1px solid #cbd5e1',
+                                fontFamily: 'inherit',
+                                fontSize: '0.85rem',
+                                boxSizing: 'border-box'
+                              }}
+                            />
+                          ) : (
+                            <div style={{
+                              maxHeight: '260px',
+                              overflowY: 'auto',
+                              fontSize: '0.85rem',
+                              color: '#1e293b'
+                            }}>
+                              <ReactMarkdown>{approval.content}</ReactMarkdown>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Action Bar (Only for Pending items) */}
+                        {isPending && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                            <div style={{ flex: 1, minWidth: '220px' }}>
+                              <input
+                                type="text"
+                                placeholder="Optional review note or feedback..."
+                                value={approvalNotes[approval.id] || ''}
+                                onChange={(e) => setApprovalNotes(prev => ({ ...prev, [approval.id]: e.target.value }))}
+                                style={{
+                                  width: '100%',
+                                  padding: '0.45rem 0.75rem',
+                                  borderRadius: '6px',
+                                  border: '1px solid #cbd5e1',
+                                  fontSize: '0.8rem',
+                                  boxSizing: 'border-box'
+                                }}
+                              />
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              {isEditing && (
+                                <button
+                                  onClick={() => setEditingApprovalId(null)}
+                                  disabled={isSubmitting}
+                                  style={{
+                                    padding: '0.5rem 0.85rem',
+                                    borderRadius: '8px',
+                                    border: '1px solid #cbd5e1',
+                                    background: '#ffffff',
+                                    color: '#64748b',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 500,
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Cancel Edit
+                                </button>
+                              )}
+
+                              <button
+                                onClick={() => handleApprovalAction(approval.id, 'reject')}
+                                disabled={isSubmitting}
+                                style={{
+                                  padding: '0.5rem 0.9rem',
+                                  borderRadius: '8px',
+                                  border: '1px solid #fca5a5',
+                                  background: '#fee2e2',
+                                  color: '#b91c1c',
+                                  fontSize: '0.8rem',
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.35rem'
+                                }}
+                              >
+                                <XCircle size={15} />
+                                Reject
+                              </button>
+
+                              <button
+                                onClick={() => handleApprovalAction(approval.id, 'approve')}
+                                disabled={isSubmitting}
+                                style={{
+                                  padding: '0.5rem 1.1rem',
+                                  borderRadius: '8px',
+                                  border: 'none',
+                                  background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
+                                  color: '#ffffff',
+                                  fontSize: '0.8rem',
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.35rem',
+                                  boxShadow: '0 2px 6px rgba(22, 163, 74, 0.3)'
+                                }}
+                              >
+                                <CheckCircle2 size={15} />
+                                {isEditing ? 'Save & Approve' : 'Approve & Continue'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 3: CRONS & SCHEDULERS */}
+          {activeTab === 'crons' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
+                  Manage recurring agent routines and background jobs
+                </span>
+                <button
+                  onClick={() => setShowNewJobModal(true)}
+                  style={{
+                    padding: '0.45rem 0.85rem',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: '#2563eb',
+                    color: '#ffffff',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.35rem'
+                  }}
+                >
+                  <Plus size={15} />
+                  New Cron Job
+                </button>
+              </div>
+
+              {/* Inline Form to Add New Cron Job */}
+              {showNewJobModal && (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '12px',
+                  border: '1px solid #bfdbfe',
+                  padding: '1.25rem',
+                  marginBottom: '1.25rem',
+                  boxShadow: '0 4px 12px rgba(59, 130, 246, 0.08)'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: '#1e293b' }}>Schedule New Recurring Job</h3>
+                    <button onClick={() => setShowNewJobModal(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b' }}>
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleCreateJob} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Job Name</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Daily Market Briefing"
+                        value={newJobName}
+                        onChange={(e) => setNewJobName(e.target.value)}
+                        required
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Target Agent</label>
+                      <select
+                        value={newJobAgent}
+                        onChange={(e) => setNewJobAgent(e.target.value)}
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem', boxSizing: 'border-box', background: 'white' }}
+                      >
+                        {(trackerData.agents || []).map(a => (
+                          <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ gridColumn: 'span 2' }}>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>
+                        Cron Expression (Standard 5-part cron)
+                      </label>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <input
+                          type="text"
+                          placeholder="e.g. 0 8 * * *"
+                          value={newJobCron}
+                          onChange={(e) => setNewJobCron(e.target.value)}
+                          required
+                          style={{ flex: 1, padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setNewJobCron('0 8 * * *')}
+                          style={{ padding: '0.35rem 0.65rem', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.75rem', cursor: 'pointer' }}
+                        >
+                          Daily 8AM
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewJobCron('0 * * * *')}
+                          style={{ padding: '0.35rem 0.65rem', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.75rem', cursor: 'pointer' }}
+                        >
+                          Hourly
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{ gridColumn: 'span 2' }}>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Task Prompt / Execution Instructions</label>
+                      <textarea
+                        rows={3}
+                        placeholder="What should the agent do when triggered?"
+                        value={newJobTask}
+                        onChange={(e) => setNewJobTask(e.target.value)}
+                        required
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                      />
+                    </div>
+
+                    <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowNewJobModal(false)}
+                        style={{ padding: '0.45rem 0.85rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#64748b', fontSize: '0.8rem', cursor: 'pointer' }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSubmittingJob}
+                        style={{ padding: '0.45rem 1rem', borderRadius: '6px', border: 'none', background: '#2563eb', color: '#ffffff', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        {isSubmittingJob ? 'Saving...' : 'Save & Schedule'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {/* Jobs List */}
+              {(trackerData.jobs || []).length === 0 ? (
+                <div style={{
+                  padding: '3rem 1rem',
+                  textAlign: 'center',
+                  background: '#ffffff',
+                  borderRadius: '12px',
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <Calendar size={40} color="#94a3b8" style={{ margin: '0 auto 0.75rem auto', display: 'block' }} />
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#0f172a', fontWeight: 600 }}>No Scheduled Crons</h3>
+                  <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+                    Click "+ New Cron Job" to schedule background tasks for your agents.
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                  {(trackerData.jobs || []).map(job => {
+                    const isActive = job.status === 'active';
+
+                    return (
+                      <div 
+                        key={job.id}
+                        style={{
+                          background: '#ffffff',
+                          borderRadius: '12px',
+                          border: '1px solid #e2e8f0',
+                          padding: '1.1rem 1.25rem',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: '1rem',
+                          opacity: isActive ? 1 : 0.7
+                        }}
+                      >
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: '#0f172a' }}>
+                              {job.name || 'Unnamed Job'}
+                            </h4>
+                            <span style={{
+                              fontSize: '0.7rem',
+                              padding: '2px 7px',
+                              borderRadius: '6px',
+                              background: isActive ? '#dcfce7' : '#f1f5f9',
+                              color: isActive ? '#15803d' : '#64748b',
+                              fontWeight: 600,
+                              textTransform: 'uppercase'
+                            }}>
+                              {job.status}
+                            </span>
+                            <span style={{
+                              fontSize: '0.75rem',
+                              fontFamily: 'monospace',
+                              background: '#f8fafc',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              border: '1px solid #e2e8f0',
+                              color: '#334155'
+                            }}>
+                              {job.cron}
+                            </span>
+                          </div>
+
+                          <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.8rem', color: '#475569' }}>
+                            Agent: <span style={{ fontWeight: 600 }}>{job.agentId || 'orchestrator'}</span> • Task: {job.task}
+                          </p>
+
+                          {job.lastRun && (
+                            <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
+                              Last Run: {new Date(job.lastRun).toLocaleString()}
+                            </p>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <button
+                            onClick={() => handleTriggerJob(job.id)}
+                            title="Run immediately in background"
+                            style={{
+                              padding: '0.4rem 0.75rem',
+                              borderRadius: '8px',
+                              border: '1px solid #bfdbfe',
+                              background: '#eff6ff',
+                              color: '#1d4ed8',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.3rem'
+                            }}
+                          >
+                            <Play size={12} fill="#1d4ed8" />
+                            Run Now
+                          </button>
+
+                          <button
+                            onClick={() => handleToggleJob(job.id)}
+                            title={isActive ? 'Pause Job' : 'Resume Job'}
+                            style={{
+                              padding: '0.4rem 0.65rem',
+                              borderRadius: '8px',
+                              border: '1px solid #e2e8f0',
+                              background: '#f8fafc',
+                              color: '#475569',
+                              fontSize: '0.75rem',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {isActive ? <Pause size={14} /> : <Play size={14} />}
+                          </button>
+
+                          <button
+                            onClick={() => handleDeleteJob(job.id)}
+                            title="Delete Job"
+                            style={{
+                              padding: '0.4rem 0.65rem',
+                              borderRadius: '8px',
+                              border: '1px solid #fee2e2',
+                              background: '#fff1f2',
+                              color: '#e11d48',
+                              fontSize: '0.75rem',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

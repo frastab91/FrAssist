@@ -6,6 +6,8 @@
 *   **Guest Guide Link Protocol:** All guest guide links must be generated dynamically using the format: `https://www.tra-montiemare.it/guest?code={access_code}`.
     *   Example: For Aniello (Code: `BE3QDP`), the link is `https://www.tra-montiemare.it/guest?code=BE3QDP`.
 
+*   **Google Profile Review Link Protocol:** When asking guests for reviews or post-stay feedback, always provide the direct Google 5-star review link: `https://g.page/r/Cayc6lTPYTwfEBM/review`. The official Google Maps page is `https://maps.app.goo.gl/F33CuFGjuh6qmYGA7`.
+
 ## 2. New Skills or Tools Added
 *   **Link Generation Logic:** Integrated protocol to generate dynamic guest guide links based on database `access_code`.
 

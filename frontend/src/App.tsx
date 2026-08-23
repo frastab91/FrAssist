@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { Bot } from 'lucide-react';
 import './index.css';
 
-import type { Message, LogEvent, Agent, AgentDetails, KeyStatus } from './types';
+import type { Message, LogEvent, Agent, AgentDetails, KeyStatus, ChatSession, TrackerOverview, TaskActivityStep, TaskActivityEvent } from './types';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ChatArea } from './components/ChatArea';
@@ -14,6 +14,8 @@ import { AgentCreateModal } from './components/AgentCreateModal';
 import { AgentInspectorModal } from './components/AgentInspectorModal';
 import { ImageModal } from './components/ImageModal';
 import { UsageDashboard } from './components/UsageDashboard';
+import { WhatsAppPage } from './components/WhatsAppPage';
+import { MissionControlModal } from './components/MissionControlModal';
 
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([
@@ -24,7 +26,7 @@ export default function App() {
     },
   ]);
   const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
+  const [, setIsTyping] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isTtsEnabled, setIsTtsEnabled] = useState(false);
   const recognitionRef = useRef<any>(null);
@@ -81,7 +83,7 @@ export default function App() {
   const [ollamaStatus, setOllamaStatus] = useState<any>(null);
   const [keyStatus, setKeyStatus] = useState<KeyStatus>({ hasGemini: false, hasTavily: false, hasTelegram: false, hasPerplexity: false });
   const [isConfiguringKey, setIsConfiguringKey] = useState<'gemini' | 'tavily' | 'telegram' | 'perplexity' | null>(null);
-  const [aiProvider, setAiProvider] = useState<'gemini' | 'ollama' | 'perplexity' | 'ollama_qwen' | 'vertex_research'>('gemini');
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'ollama' | 'perplexity' | 'ollama_qwen' | 'vertex_research' | 'digitalocean'>('digitalocean');
   const [logs, setLogs] = useState<LogEvent[]>([]);
   const [showLogs, setShowLogs] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
@@ -98,12 +100,58 @@ export default function App() {
   const [inspectorTab, setInspectorTab] = useState<'rules' | 'skills' | 'schedule' | 'memory'>('rules');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedAgentDetails, setSelectedAgentDetails] = useState<AgentDetails | null>(null);
-  const [isFetchingDetails, setIsFetchingDetails] = useState(false);
+  const [, setIsFetchingDetails] = useState(false);
   const [agentIdea, setAgentIdea] = useState('');
   const [isGeneratingAgent, setIsGeneratingAgent] = useState(false);
   const [networkIp, setNetworkIp] = useState<string>('');
   const [showUsageDashboard, setShowUsageDashboard] = useState(false);
   const [detailedStats, setDetailedStats] = useState<any[]>([]);
+  const [whatsappStatus, setWhatsappStatus] = useState<{ connected: boolean; user: any; qr: string | null }>({
+    connected: false,
+    user: null,
+    qr: null
+  });
+
+  // Mission Control & Tracker State
+  const [showMissionControl, setShowMissionControl] = useState(false);
+  const [trackerData, setTrackerData] = useState<TrackerOverview>({
+    agents: [],
+    pendingApprovals: [],
+    jobs: [],
+    timestamp: ''
+  });
+
+  const fetchTrackerData = async () => {
+    try {
+      const res = await fetch('/api/tracker/overview');
+      if (res.ok) {
+        const data = await res.json();
+        setTrackerData(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch tracker data:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchTrackerData();
+  }, []);
+
+  // Multi-Session & Channel State
+  const [activeChannel, setActiveChannel] = useState<'web' | 'whatsapp' | 'telegram' | 'agent'>('web');
+  const [activeSessionId, setActiveSessionId] = useState<string>('session_default');
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [sessionTitle, setSessionTitle] = useState<string>('');
+  const [subagentsUsed, setSubagentsUsed] = useState<string[]>([]);
+  
+  // Multi-Session Background Execution Tracking
+  const [sessionTaskSteps, setSessionTaskSteps] = useState<Record<string, TaskActivityStep[]>>({});
+  const [sessionWorkingMap, setSessionWorkingMap] = useState<Record<string, boolean>>({});
+  const [sessionStatusMap, setSessionStatusMap] = useState<Record<string, string>>({});
+  const activeSessionIdRef = useRef(activeSessionId);
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
 
   useEffect(() => {
     const fetchNetworkInfo = async () => {
@@ -126,7 +174,8 @@ export default function App() {
   const [showFiles, setShowFiles] = useState(false);
   const [files, setFiles] = useState<Record<string, string[]>>({});
   const [selectedFile, setSelectedFile] = useState<{ dir: string, file: string, content: string } | null>(null);
-  const [isFetchingFiles, setIsFetchingFiles] = useState(false);
+  const [, setIsFetchingFiles] = useState(false);
+
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [systemStats, setSystemStats] = useState({ total_input_tokens: 0, total_output_tokens: 0, total_requests: 0 });
@@ -179,7 +228,7 @@ export default function App() {
 
           return {
             id: `hist-${idx}-${Date.now()}`,
-            role: h.role === 'user' ? 'user' : 'assistant',
+            role: (h.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
             agentId: data.agentId,
             content: content,
           };
@@ -196,47 +245,205 @@ export default function App() {
       }
     });
 
-    newSocket.on('agent_message', (data: { agentId: string; content: string; image?: string; images?: string[]; usage?: any; isTool?: boolean }) => {
-      setMessages((prev) => {
-        const lastMsg = prev[prev.length - 1];
-        if (
-          lastMsg &&
-          lastMsg.role === 'assistant' &&
-          lastMsg.agentId === data.agentId &&
-          lastMsg.content === data.content &&
-          JSON.stringify(lastMsg.usage) === JSON.stringify(data.usage)
-        ) {
-          return prev;
-        }
+    newSocket.on('session_working_status', ({ sessionId, isWorking }: { sessionId: string; isWorking: boolean }) => {
+      setSessionWorkingMap(prev => ({ ...prev, [sessionId]: isWorking }));
+    });
 
+    newSocket.on('active_session_runs', (runs: string[]) => {
+      const map: Record<string, boolean> = {};
+      runs.forEach(id => { map[id] = true; });
+      setSessionWorkingMap(map);
+    });
+
+    newSocket.on('agent_message', (data: { sessionId?: string; agentId: string; content: string; image?: string; images?: string[]; usage?: any; isTool?: boolean }) => {
+      const targetSession = data.sessionId || activeSessionIdRef.current;
+      if (targetSession === activeSessionIdRef.current) {
+        setMessages((prev) => {
+          const lastMsg = prev[prev.length - 1];
+          if (
+            lastMsg &&
+            lastMsg.role === 'assistant' &&
+            lastMsg.agentId === data.agentId &&
+            lastMsg.content === data.content &&
+            JSON.stringify(lastMsg.usage) === JSON.stringify(data.usage)
+          ) {
+            return prev;
+          }
+
+          return [
+            ...prev,
+            {
+              id: Date.now().toString() + Math.random().toString(36).substring(7),
+              sessionId: targetSession,
+              role: 'assistant',
+              agentId: data.agentId,
+              content: data.content,
+              images: data.images ? data.images : (data.image ? [data.image] : undefined),
+              usage: data.usage,
+              isTool: data.isTool
+            },
+          ];
+        });
+        if (data.content && !data.isTool) {
+          speak(data.content);
+        }
+      }
+    });
+
+    newSocket.on('agent_status', (data: { sessionId?: string; agentId: string; status: 'idle' | 'working', message?: string; toolName?: string }) => {
+      const targetSession = data.sessionId || activeSessionIdRef.current;
+      if (targetSession) {
+        setSessionWorkingMap(prev => ({ ...prev, [targetSession]: data.status === 'working' }));
+        setSessionStatusMap(prev => ({ ...prev, [targetSession]: data.status === 'idle' ? '' : (data.message || '') }));
+      }
+
+      if (data.agentId === 'orchestrator' || !data.agentId) {
+        if (targetSession === activeSessionIdRef.current) {
+          setIsTyping(data.status === 'working');
+          if (data.status === 'idle') setCurrentStatus('');
+          else if (data.message) setCurrentStatus(data.message);
+        }
+      }
+      setActiveAgents((prev) => {
+        const found = prev.find(a => a.id === data.agentId);
+        if (found) {
+          return prev.map(a => a.id === data.agentId ? {
+            ...a,
+            status: data.status,
+            currentTask: data.message || a.currentTask,
+            activeTool: data.toolName
+          } : a);
+        }
         return [
           ...prev,
           {
-            id: Date.now().toString() + Math.random().toString(36).substring(7),
-            role: 'assistant',
-            agentId: data.agentId,
-            content: data.content,
-            images: data.images ? data.images : (data.image ? [data.image] : undefined),
-            usage: data.usage,
-            isTool: data.isTool
-          },
+            id: data.agentId,
+            name: data.agentId,
+            role: 'Agent',
+            status: data.status,
+            currentTask: data.message,
+            activeTool: data.toolName,
+            icon: <Bot size={16} />
+          }
         ];
       });
-      if (data.content && !data.isTool) {
-        speak(data.content);
+    });
+
+    newSocket.on('task_activity', (act: TaskActivityEvent) => {
+      const sId = act.sessionId || activeSessionIdRef.current;
+      setSessionTaskSteps(prevMap => {
+        const currentSteps = prevMap[sId] || [];
+        let updatedSteps = currentSteps;
+        if (act.action === 'start') {
+          updatedSteps = [
+            {
+              id: act.id,
+              agentId: act.agentId,
+              sessionId: sId,
+              type: 'planning',
+              title: act.detail,
+              status: 'completed',
+              timestamp: act.timestamp,
+              durationMs: 200
+            }
+          ];
+        } else if (act.action === 'llm_start') {
+          updatedSteps = [
+            ...currentSteps.map(s => s.status === 'running' ? { ...s, status: 'completed' as const, durationMs: s.durationMs || (Date.now() - s.timestamp) } : s),
+            {
+              id: act.id,
+              agentId: act.agentId,
+              sessionId: sId,
+              type: 'llm_reasoning',
+              title: act.detail,
+              model: act.model || act.provider,
+              status: 'running',
+              timestamp: act.timestamp
+            }
+          ];
+        } else if (act.action === 'llm_end') {
+          updatedSteps = currentSteps.map(s => (s.status === 'running' && s.type === 'llm_reasoning') ? {
+            ...s,
+            status: 'completed',
+            detail: act.detail,
+            durationMs: act.durationMs || (Date.now() - s.timestamp)
+          } : s);
+        } else if (act.action === 'tool_start') {
+          updatedSteps = [
+            ...currentSteps.map(s => s.status === 'running' ? { ...s, status: 'completed' as const, durationMs: s.durationMs || (Date.now() - s.timestamp) } : s),
+            {
+              id: act.id,
+              agentId: act.agentId,
+              sessionId: sId,
+              type: 'tool_call',
+              title: act.detail,
+              toolName: act.toolName,
+              toolArgs: act.args,
+              status: 'running',
+              timestamp: act.timestamp
+            }
+          ];
+        } else if (act.action === 'tool_end') {
+          updatedSteps = currentSteps.map(s => (s.status === 'running' && s.type === 'tool_call') ? {
+            ...s,
+            status: act.error ? 'error' : 'completed',
+            detail: act.detail,
+            durationMs: act.durationMs || (Date.now() - s.timestamp)
+          } : s);
+        } else if (act.action === 'subagent_start') {
+          updatedSteps = [
+            ...currentSteps.map(s => s.status === 'running' ? { ...s, status: 'completed' as const, durationMs: s.durationMs || (Date.now() - s.timestamp) } : s),
+            {
+              id: act.id,
+              agentId: act.agentId,
+              sessionId: sId,
+              type: 'subagent_delegation',
+              title: act.detail,
+              detail: act.task,
+              status: 'running',
+              timestamp: act.timestamp
+            }
+          ];
+        } else if (act.action === 'subagent_end') {
+          updatedSteps = currentSteps.map(s => (s.status === 'running' && s.type === 'subagent_delegation') ? {
+            ...s,
+            status: 'completed',
+            detail: act.detail,
+            durationMs: Date.now() - s.timestamp
+          } : s);
+        } else if (act.action === 'synthesis') {
+          updatedSteps = [
+            ...currentSteps.map(s => s.status === 'running' ? { ...s, status: 'completed' as const, durationMs: s.durationMs || (Date.now() - s.timestamp) } : s),
+            {
+              id: act.id,
+              agentId: act.agentId,
+              sessionId: sId,
+              type: 'synthesis',
+              title: 'Synthesizing response & formatting',
+              detail: act.detail,
+              status: 'running',
+              timestamp: act.timestamp
+            }
+          ];
+        } else if (act.action === 'heartbeat') {
+          updatedSteps = currentSteps.map(s => s.status === 'running' ? {
+            ...s,
+            detail: act.detail || s.detail
+          } : s);
+        } else if (act.action === 'complete') {
+          updatedSteps = currentSteps.map(s => s.status === 'running' ? { ...s, status: 'completed' as const, durationMs: s.durationMs || (Date.now() - s.timestamp) } : s);
+        }
+        return { ...prevMap, [sId]: updatedSteps };
+      });
+    });
+
+    newSocket.on('agent_health', (data: { sessionId?: string; agentId: string; status: string; toolName?: string; elapsedSeconds: number; health: string }) => {
+      const targetSession = data.sessionId || activeSessionIdRef.current;
+      if (targetSession === activeSessionIdRef.current && data.elapsedSeconds >= 10) {
+        setCurrentStatus(`⚡ ${data.toolName || 'Processing'} (${data.elapsedSeconds}s — running smoothly)`);
       }
     });
 
-    newSocket.on('agent_status', (data: { agentId: string; status: 'idle' | 'working', message?: string }) => {
-      if (data.agentId === 'orchestrator') {
-        setIsTyping(data.status === 'working');
-        if (data.status === 'idle') setCurrentStatus('');
-        else if (data.message) setCurrentStatus(data.message);
-      }
-      setActiveAgents((prev) => 
-        prev.map(a => a.id === data.agentId ? { ...a, status: data.status } : a)
-      );
-    });
     newSocket.on('active_agents', (agents: any[]) => {
       setActiveAgents(agents.map(a => ({
         ...a,
@@ -274,15 +481,77 @@ export default function App() {
       }
     });
 
+    newSocket.on('whatsapp_status', (status: any) => {
+      setWhatsappStatus(status);
+    });
+
+    newSocket.on('whatsapp_qr', (data: { qr: string }) => {
+      setWhatsappStatus((prev) => ({ ...prev, qr: data.qr }));
+    });
+
+    newSocket.on('sessions_list', (list: ChatSession[]) => {
+      setSessions(list);
+    });
+
+    newSocket.on('session_created', ({ session }: { session: ChatSession }) => {
+      setActiveSessionId(session.id);
+      setSessionTitle(session.title);
+      setSubagentsUsed(session.subagentsUsed || []);
+      setCurrentStatus('');
+      setMessages([
+        {
+          id: '1',
+          role: 'assistant',
+          content: `Started new session: **${session.title}**`
+        }
+      ]);
+    });
+
+    newSocket.on('session_loaded', ({ sessionId, session, messages: loadedMessages }: { sessionId: string; session: ChatSession; messages: Message[] }) => {
+      setActiveSessionId(sessionId);
+      setSessionTitle(session?.title || '');
+      setSubagentsUsed(session?.subagentsUsed || []);
+      setCurrentStatus(sessionStatusMap[sessionId] || '');
+      if (session?.channel) setActiveChannel(session.channel);
+      if (session?.targetAgent && session.targetAgent !== 'orchestrator') {
+        setSelectedAgentId(session.targetAgent);
+      }
+      setMessages(loadedMessages && loadedMessages.length > 0 ? loadedMessages : [
+        {
+          id: '1',
+          role: 'assistant',
+          content: 'Hello! I am your Multi-Agent Personal Assistant. How can I help you today?'
+        }
+      ]);
+    });
+
     newSocket.on('agent_log', (data: LogEvent) => {
-      setLogs((prev) => [...prev, data]);
+      setLogs((prev) => {
+        if (data.id && prev.some((l) => l.id === data.id)) {
+          return prev;
+        }
+        const next = [...prev, data];
+        // Cap at 2000 entries to prevent memory bloat; oldest are trimmed first
+        return next.length > 2000 ? next.slice(next.length - 2000) : next;
+      });
       if (data.agentId === 'orchestrator') {
         setCurrentStatus(data.message);
       }
     });
 
     newSocket.on('log_history', (history: LogEvent[]) => {
-      setLogs(history);
+      // FIX: MERGE history with existing in-memory logs instead of replacing.
+      // On every reconnect the backend only sends the last 200 persisted entries.
+      // Replacing would wipe any logs that arrived after the last file write.
+      setLogs((prev) => {
+        if (!prev.length) return history;
+        // Build a Set of already-known IDs so we don't add duplicates
+        const knownIds = new Set(prev.map((l) => l.id));
+        const newEntries = history.filter((l) => !knownIds.has(l.id));
+        // Prepend historical entries that aren't already in state (they're older)
+        const merged = [...newEntries, ...prev];
+        return merged.length > 2000 ? merged.slice(merged.length - 2000) : merged;
+      });
     });
 
     newSocket.on('ollama_status', (data: any) => {
@@ -292,14 +561,32 @@ export default function App() {
     newSocket.on('system_stats', (data: any) => {
       setSystemStats(data);
     });
+
+    newSocket.on('tracker_update', (data: TrackerOverview) => {
+      setTrackerData(data);
+    });
+
+    newSocket.on('tracker_overview', (data: TrackerOverview) => {
+      setTrackerData(data);
+    });
+
+    newSocket.on('pending_approval_created', (approval: any) => {
+      setTrackerData(prev => ({
+        ...prev,
+        pendingApprovals: [approval, ...(prev.pendingApprovals || []).filter(a => a.id !== approval.id)]
+      }));
+    });
+
+    newSocket.on('pending_approval_updated', (approval: any) => {
+      setTrackerData(prev => ({
+        ...prev,
+        pendingApprovals: (prev.pendingApprovals || []).map(a => a.id === approval.id ? approval : a)
+      }));
+    });
     
     // Poll for Ollama status
     const pollOllama = () => {
-      newSocket.emit('user_message', { 
-        content: 'system_internal_poll: monitor_ollama', 
-        provider: 'ollama', 
-        internal: true 
-      });
+      newSocket.emit('poll_ollama');
     };
     const interval = setInterval(pollOllama, 30000);
     pollOllama();
@@ -437,29 +724,22 @@ export default function App() {
     return () => clearInterval(statsInterval);
   }, []);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setInput(val);
-    
-    if (val === '/') {
-      setSuggestions(['/new', '/stop', '/learn', '/help']);
-      setShowSuggestions(true);
-    } else if (val.startsWith('/')) {
-      const list = ['/new', '/stop', '/learn', '/help'].filter(s => s.startsWith(val));
-      setSuggestions(list);
-      setShowSuggestions(list.length > 0);
-    } else {
-      setShowSuggestions(false);
-    }
-  };
+
 
   const handleSuggestionClick = (cmd: string) => {
     setInput(cmd);
     setShowSuggestions(false);
   };
 
-  const handleStop = () => {
-    if (socket) socket.emit('stop_generation');
+  const handleStop = (sessionIdToStop?: string) => {
+    const target = sessionIdToStop || activeSessionId;
+    if (socket) socket.emit('stop_generation', { sessionId: target });
+    setSessionWorkingMap(prev => ({ ...prev, [target]: false }));
+    setSessionStatusMap(prev => ({ ...prev, [target]: '' }));
+    if (target === activeSessionId) {
+      setIsTyping(false);
+      setCurrentStatus('');
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -491,7 +771,7 @@ export default function App() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    if (!input.trim() && selectedImages.length === 0) return;
 
     setShowSuggestions(false);
 
@@ -510,14 +790,15 @@ export default function App() {
 
     if (input === '/new') {
       setMessages([]);
-      setLogs([]);
+      // FIX: Do NOT wipe logs on /new — logs are a system audit trail, not chat history.
+      // The user can use the "Clear Logs" button in the log panel if they want to clear them.
       if (socket) socket.emit('clear_history', { agentId: 'orchestrator' });
       setInput('');
       return;
     }
 
     if (input === '/stop') {
-      handleStop();
+      handleStop(activeSessionId);
       return;
     }
     
@@ -539,7 +820,9 @@ export default function App() {
           content: input, 
           provider: aiProvider,
           images: selectedImages,
-          targetAgentId: selectedAgentId
+          targetAgentId: selectedAgentId,
+          channel: activeChannel,
+          sessionId: activeSessionId
         });
       }
     }
@@ -615,9 +898,9 @@ export default function App() {
 
   const handleCreateAgent = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newAgent.name.trim()) return;
+    if (!newAgent.name || !newAgent.role) return;
 
-    const agentId = newAgent.name.toLowerCase().replace(/\s+/g, '_') + '_' + Date.now().toString().substring(8);
+    const agentId = newAgent.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
     
     if (socket) {
       socket.emit('spawn_agent_manual', { 
@@ -640,8 +923,46 @@ export default function App() {
     return messagesWithUsage[messagesWithUsage.length - 1].usage!.promptTokens;
   }, [messages]);
 
+  const handleNewChat = () => {
+    setSelectedImages([]);
+    setInput('');
+    socket?.emit('create_session', {
+      channel: activeChannel,
+      targetAgentId: selectedAgentId || 'orchestrator'
+    });
+  };
+
+  const handleDeleteSession = (sessionId: string) => {
+    socket?.emit('delete_session', { sessionId });
+    setSessionWorkingMap(prev => {
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+    setSessionStatusMap(prev => {
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+    setSessionTaskSteps(prev => {
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+    if (activeSessionId === sessionId) {
+      setMessages([{
+        id: '1',
+        role: 'assistant',
+        content: 'Hello! I am your Multi-Agent Personal Assistant. How can I help you today?'
+      }]);
+      setActiveSessionId('session_default');
+      setSessionTitle('');
+      setSubagentsUsed([]);
+    }
+  };
+
   return (
-    <div className="app-container">
+    <div className={`app-container ${isDragging ? 'dragging' : ''}`}>
       <Sidebar
         setShowCreateModal={setShowCreateModal}
         activeAgents={activeAgents}
@@ -656,9 +977,22 @@ export default function App() {
           fetchDetailedStats();
           setShowUsageDashboard(true);
         }}
+        activeChannel={activeChannel}
+        setActiveChannel={setActiveChannel}
+        activeSessionId={activeSessionId}
+        setActiveSessionId={setActiveSessionId}
+        sessions={sessions}
+        sessionWorkingMap={sessionWorkingMap}
+        onNewChat={handleNewChat}
+        onDeleteSession={handleDeleteSession}
+        onOpenWhatsApp={() => {
+          setActiveChannel('whatsapp');
+          setSelectedAgentId(null);
+        }}
+        whatsappConnected={whatsappStatus.connected}
       />
       
-      <main className="main-content">
+      <main className="main-content" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
         <Header
           aiProvider={aiProvider}
           setAiProvider={setAiProvider}
@@ -679,46 +1013,76 @@ export default function App() {
           setLogs={setLogs}
           socket={socket}
           ollamaStatus={ollamaStatus}
+          onOpenWhatsApp={() => {
+            setActiveChannel('whatsapp');
+            setSelectedAgentId(null);
+          }}
+          whatsappConnected={whatsappStatus.connected}
+          onOpenMissionControl={() => {
+            fetchTrackerData();
+            setShowMissionControl(true);
+          }}
+          workingAgentsCount={(trackerData.agents || []).filter(a => a.status === 'working' || a.status === 'waiting_approval').length}
+          pendingApprovalsCount={(trackerData.pendingApprovals || []).filter(a => a.status === 'pending').length}
+          currentStatus={sessionStatusMap[activeSessionId] || currentStatus}
+          handleStop={() => handleStop(activeSessionId)}
         />
 
-        <ChatArea
-          messages={messages}
-          activeAgents={activeAgents}
-          logs={logs}
-          currentStatus={currentStatus}
-          setEnlargedImage={setEnlargedImage}
-          messagesEndRef={messagesEndRef}
-          handleStop={handleStop}
-        />
+        {activeChannel === 'whatsapp' ? (
+          <WhatsAppPage
+            status={whatsappStatus}
+            socket={socket}
+            onBackToWorkspace={() => setActiveChannel('web')}
+          />
+        ) : (
+          <>
+            <ChatArea
+              messages={messages}
+              activeAgents={activeAgents}
+              logs={logs}
+              currentStatus={sessionStatusMap[activeSessionId] || currentStatus}
+              taskSteps={sessionTaskSteps[activeSessionId] || []}
+              isCurrentSessionWorking={Boolean(sessionWorkingMap[activeSessionId])}
+              setEnlargedImage={setEnlargedImage}
+              messagesEndRef={messagesEndRef}
+              handleStop={() => handleStop(activeSessionId)}
+              activeChannel={activeChannel}
+              selectedAgentId={selectedAgentId}
+              sessionTitle={sessionTitle}
+              subagentsUsed={subagentsUsed}
+              onOpenLogs={() => setShowLogs(true)}
+            />
 
-        <InputArea
-          isDragging={isDragging}
-          handleDragOver={handleDragOver}
-          handleDragLeave={handleDragLeave}
-          handleDrop={handleDrop}
-          showSuggestions={showSuggestions}
-          suggestions={suggestions}
-          handleSuggestionClick={handleSuggestionClick}
-          handleSubmit={handleSubmit}
-          toggleRecording={toggleRecording}
-          isRecording={isRecording}
-          textareaRef={textareaRef}
-          input={input}
-          setInput={setInput}
-          setShowSuggestions={setShowSuggestions}
-          setSuggestions={setSuggestions}
-          handlePaste={handlePaste}
-          isConfiguringKey={isConfiguringKey}
-          fileInputRef={fileInputRef}
-          handleImageUpload={handleImageUpload}
-          activeAgents={activeAgents}
-          handleStop={handleStop}
-          selectedImages={selectedImages}
-          removeImage={removeImage}
-          currentContextTokens={currentContextTokens}
-          logs={logs}
-          selectedAgentId={selectedAgentId}
-        />
+            <InputArea
+              isDragging={isDragging}
+              handleDragOver={handleDragOver}
+              handleDragLeave={handleDragLeave}
+              handleDrop={handleDrop}
+              showSuggestions={showSuggestions}
+              suggestions={suggestions}
+              handleSuggestionClick={handleSuggestionClick}
+              handleSubmit={handleSubmit}
+              toggleRecording={toggleRecording}
+              isRecording={isRecording}
+              textareaRef={textareaRef}
+              input={input}
+              setInput={setInput}
+              setShowSuggestions={setShowSuggestions}
+              setSuggestions={setSuggestions}
+              handlePaste={handlePaste}
+              isConfiguringKey={isConfiguringKey}
+              fileInputRef={fileInputRef}
+              handleImageUpload={handleImageUpload}
+              activeAgents={activeAgents}
+              handleStop={handleStop}
+              selectedImages={selectedImages}
+              removeImage={removeImage}
+              currentContextTokens={currentContextTokens}
+              logs={logs}
+              selectedAgentId={selectedAgentId}
+            />
+          </>
+        )}
       </main>
 
       {showLogs && (
@@ -773,6 +1137,19 @@ export default function App() {
       <ImageModal
         enlargedImage={enlargedImage}
         setEnlargedImage={setEnlargedImage}
+      />
+
+      <MissionControlModal
+        isOpen={showMissionControl}
+        onClose={() => setShowMissionControl(false)}
+        trackerData={trackerData}
+        onRefresh={fetchTrackerData}
+        socket={socket}
+        onInspectAgent={(agentId) => {
+          setSelectedAgentId(agentId);
+          setShowInspector(true);
+          socket?.emit('request_agent_details', { agentId });
+        }}
       />
     </div>
   );

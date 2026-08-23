@@ -1,10 +1,9 @@
-import React from 'react';
 import type { LogEvent } from '../types';
 
 type LogSidebarProps = {
   logs: LogEvent[];
   setLogs: (logs: LogEvent[]) => void;
-  logsEndRef: React.RefObject<HTMLDivElement>;
+  logsEndRef: React.RefObject<HTMLDivElement | null>;
 };
 
 export function LogSidebar({ logs, setLogs, logsEndRef }: LogSidebarProps) {

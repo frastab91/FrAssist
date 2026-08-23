@@ -1,4 +1,3 @@
-import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Bot, X, Shield, Terminal, Brain, Calendar, Clock, CheckCircle2 } from 'lucide-react';
 import type { AgentDetails } from '../types';

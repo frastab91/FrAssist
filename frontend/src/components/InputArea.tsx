@@ -1,6 +1,5 @@
-import React from 'react';
 import { Mic, Image as ImageIcon, Square, Send, X, Terminal, Bot } from 'lucide-react';
-import type { Agent } from '../types';
+import type { Agent, LogEvent } from '../types';
 
 type InputAreaProps = {
   isDragging: boolean;
@@ -13,14 +12,14 @@ type InputAreaProps = {
   handleSubmit: (e: React.FormEvent) => void;
   toggleRecording: () => void;
   isRecording: boolean;
-  textareaRef: React.RefObject<HTMLTextAreaElement>;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   input: string;
   setInput: (val: string) => void;
   setShowSuggestions: (show: boolean) => void;
   setSuggestions: (s: string[]) => void;
   handlePaste: (e: React.ClipboardEvent) => void;
   isConfiguringKey: string | null;
-  fileInputRef: React.RefObject<HTMLInputElement>;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
   handleImageUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   activeAgents: Agent[];
   handleStop: () => void;
@@ -143,9 +142,11 @@ export function InputArea({
             >
               <span style={{ fontWeight: 600, color: '#3b82f6' }}>{s}</span>
               <span style={{ marginLeft: '1rem', color: '#64748b', fontSize: '0.8rem' }}>
-                {s === '/new' ? 'Analyze session and reset workspace' : 
+                {s === '/compress' ? 'Compress session history & prune bloated context' :
+                 s === '/new' ? 'Analyze session and reset workspace' : 
                  s === '/stop' ? 'Stop current generation immediately' :
                  s === '/learn' ? 'Extract insights and architectural proposals' : 
+                 s === '/ego' ? 'Execute autonomous web task in Ego Lite' :
                  'Show available commands'}
               </span>
             </button>
@@ -179,11 +180,12 @@ export function InputArea({
           onChange={(e) => {
             const val = e.target.value;
             setInput(val);
+            const allCmds = ['/compress', '/new', '/stop', '/learn', '/ego', '/help'];
             if (val === '/') {
-              setSuggestions(['/new', '/stop', '/learn', '/help']);
+              setSuggestions(allCmds);
               setShowSuggestions(true);
             } else if (val.startsWith('/')) {
-              const list = ['/new', '/stop', '/learn', '/help'].filter(s => s.startsWith(val));
+              const list = allCmds.filter(s => s.startsWith(val));
               setSuggestions(list);
               setShowSuggestions(list.length > 0);
             } else {

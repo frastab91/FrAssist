@@ -1,13 +1,12 @@
 {
-  "activeProjectId": "tra-montiemare",
+  "activeProjectId": "Vacation rental in Scalea, Italy",
   "projects": [
     {
       "id": "tra-montiemare",
       "title": "Vacation rental in Scalea, Italy",
       "description": "the website where I manage my vacation rental in SCALEA, query about guests, revenue, avaiability or draft reply messages to inquiries",
       "supabaseUrl": "https://vlbrrbxpzsozwlqfmkgo.supabase.co",
-      "supabaseKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZsYnJyYnhwenNvendscWZta2dvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NTA1NjYwOSwiZXhwIjoyMDYwNjMyNjA5fQ.xaqW-15DVmxoq2_MekkRwCxGQ2rAIvhyqxll1rwuh8w",
-      "supabaseServiceRoleKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZsYnJyYnhwenNvendscWZta2dvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NTA1NjYwOSwiZXhwIjoyMDYwNjMyNjA5fQ.xaqW-15DVmxoq2_MekkRwCxGQ2rAIvhyqxll1rwuh8w"
+      "supabaseKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZsYnJyYnhwenNvendscWZta2dvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NTA1NjYwOSwiZXhwIjoyMDYwNjMyNjA5fQ.xaqW-15DVmxoq2_MekkRwCxGQ2rAIvhyqxll1rwuh8w"
     },
     {
       "id": "rally-nyc",
@@ -16,6 +15,13 @@
       "supabaseUrl": "https://oylhowvuhatfiyejjhwd.supabase.co",
       "supabaseAnonKey": "sb_publishable_rJkAujGcRvnw2TJHnkxxQQ_pN6rto1X",
       "supabaseServiceRoleKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95bGhvd3Z1aGF0Zml5ZWpqaHdkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTM1MDEwOCwiZXhwIjoyMDkwOTI2MTA4fQ.oJAxBJXlUlzCMuYh_fq1rrfcGsX5oDGo41GLBmfY_1U"
+    },
+    {
+      "id": "Vacation rental in Scalea, Italy",
+      "title": "Vacation rental in Scalea, Italy",
+      "description": "the website where I manage my vacation rental in SCALEA, query about guests, revenue, avaiability or draft reply messages to inquiries",
+      "supabaseUrl": "https://vlbrrbxpzsozwlqfmkgo.supabase.co",
+      "supabaseKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZsYnJyenhwenNvenp3bHFmbWtnbyIsInJvbGUiOiJzZXJ2aWNlX3JvbGUiLCJwYXNzd29yZCI6IjIwMjYwNDI4YmFjayJ9.tGqgU0081QhE3WfA-b6n9B7b-8YfQo8iYgN2rN5h9dI"
     }
   ]
 }

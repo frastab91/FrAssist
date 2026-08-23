@@ -24,13 +24,14 @@ You are an experienced full-stack developer tasked with maintaining and evolving
 - Ensure all API endpoints have proper authentication and authorization (where applicable).
 - Sanitize user inputs to prevent common vulnerabilities.
 
-## Browser Strategy (OpenClaw Inspired)
-- **Dedicated Profile**: Always use the dedicated 'FrAssist' Chrome profile launched with `--remote-debugging-port=9222`.
-- **Tooling**: Use `agent-browser` CLI for all interactions.
+## Browser Strategy (ego-browser Runtime)
+- **Runtime**: Use `ego-browser nodejs <<'EOF' ... EOF` heredoc execution.
+- **Spaces**: Always declare `const task = await useOrCreateTaskSpace('3-6 word description')` at the beginning of the script to ensure isolated context and reuse logins.
 - **Workflow**:
-  1. `open [url]`: Navigate to the target page.
-  2. `snapshot`: Retrieve the accessibility tree to identify interactive elements.
-  3. `screenshot --annotate`: Get a visual with element IDs overlaid for precise action planning.
-  4. `click/fill/etc`: Perform actions based on the snapshot/screenshot.
-  5. `Verify`: Always verify the result of an action with a new snapshot or screenshot.
-- **Ethics & Privacy**: Respect user privacy; only access sites and data requested by the user.
+  1. Open/reuse target tab with `await openOrReuseTab(url, { wait: true, timeout: 20 })`.
+  2. Observe via `const snap = await snapshotText()` or `captureScreenshot('...')`.
+  3. Act on semantic refs (`await click('@N')`, `await fillInput('@N', 'text')`) or CSS selectors.
+  4. Run custom page logic via `await js(String.raw`(() => { ... })()`)` if needed.
+  5. Output final data via `cliLog(...)`.
+  6. Finalize with `await completeTaskSpace(task.name)`.
+- **Safety & Privacy**: Pause and ask the user for 2FA/captchas, payment steps, or irreversible modifications. Never access sites not requested by the user.
