@@ -79,3 +79,6 @@
 *   **Blog Post Image Strategy**: The user has a preference for using watermark-free, public domain images for blog posts.
 *   **Image Selection Criteria**: When replacing broken images, the priority is for them to be authentic, high-quality, and relevant to the article's theme (e.g., "calming," "undiscovered coast," "escaping burnout").
 *   **Image Source Preference**: The user prefers images from sources like Hippopx and Wallspic over those from Unsplash/Pexels due to the watermark-free and public domain nature of the former.
+
+## Session Extract: 2026-08-24
+- User's professional role is at the United Nations, focusing on digital and emerging technologies cooperation to ensure AI and other technologies benefit everyone.

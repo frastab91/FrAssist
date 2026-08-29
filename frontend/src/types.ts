@@ -10,9 +10,11 @@ export type Message = {
   images?: string[];
   audioUrl?: string;
   isTool?: boolean;
+  isError?: boolean;
   model?: string;
   usage?: { promptTokens: number; candidatesTokens: number; totalTokens: number; durationMs?: number; model?: string };
   toolExecutions?: { toolName: string; args: string }[];
+  steps?: { toolName: string; durationMs?: number; status: 'success' | 'error'; preview?: string; timestamp?: number }[];
   timestamp?: string;
 };
 
@@ -145,9 +147,15 @@ export type SystemStats = {
 
 export type KeyStatus = {
   hasGemini: boolean;
+  hasOllamaCloud?: boolean;
+  hasOllamaCloud2?: boolean;
+  hasDigitalOcean?: boolean;
   hasTavily: boolean;
   hasTelegram: boolean;
   hasPerplexity: boolean;
+  hasDuffel?: boolean;
+  defaultProvider?: string;
+  defaultOllamaCloudModel?: string;
 };
 
 export type DetailedStat = {

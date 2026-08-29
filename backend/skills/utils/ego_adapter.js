@@ -163,8 +163,8 @@ cliLog('Closed and completed task space: ' + ${nameJson});
   }
 
   static getObstacleClearanceScript() {
-    return String.raw`
-    const obstacleReport = await js(String.raw`(() => {
+    return `
+    const obstacleReport = await js(String.raw\`(() => {
       // 1. Detect Cloudflare / Security Check / CAPTCHA
       const bodyText = document.body ? (document.body.innerText || '') : '';
       const title = document.title || '';
@@ -244,7 +244,7 @@ cliLog('Closed and completed task space: ' + ${nameJson});
         title,
         url: window.location.href
       };
-    })()`);
+    })()\`);
     `;
   }
 
@@ -253,7 +253,7 @@ cliLog('Closed and completed task space: ' + ${nameJson});
       throw new Error('ego-browser binary not found at ' + EGO_BIN);
     }
     const cmd = `${EGO_BIN} nodejs <<'EOF'\n${script}\nEOF`;
-    const { stdout, stderr } = await execPromise(cmd, { timeout: 60000 });
+    const { stdout, stderr } = await execPromise(cmd, { timeout: 60000, maxBuffer: 15 * 1024 * 1024 });
     return (stdout || stderr || '').trim();
   }
 

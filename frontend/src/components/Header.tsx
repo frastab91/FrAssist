@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings, ChevronDown, Folder, Terminal, Volume2, VolumeX, Globe, Play, MessageSquare, Activity, Clock } from 'lucide-react';
+import { Settings, ChevronDown, Folder, Terminal, Volume2, VolumeX, Globe, Play, MessageSquare, Activity, PanelLeft } from 'lucide-react';
 import type { KeyStatus } from '../types';
 import { Socket } from 'socket.io-client';
 
@@ -22,6 +22,8 @@ function MenuItem({ icon, label, onClick }: { icon: React.ReactNode; label: stri
 }
 
 type HeaderProps = {
+  toggleSidebar: () => void;
+  isSidebarOpen: boolean;
   aiProvider: string;
   setAiProvider: (provider: any) => void;
   showSettingsMenu: boolean;
@@ -48,9 +50,12 @@ type HeaderProps = {
   pendingApprovalsCount: number;
   currentStatus?: string;
   handleStop?: () => void;
+  onOpenSettings?: () => void;
 };
 
 export function Header({
+  toggleSidebar,
+  isSidebarOpen,
   aiProvider,
   setAiProvider,
   showSettingsMenu,
@@ -77,63 +82,54 @@ export function Header({
   pendingApprovalsCount,
   currentStatus = '',
   handleStop,
+  onOpenSettings,
 }: HeaderProps) {
   return (
     <header className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.25rem', borderBottom: '1px solid #e2e8f0', background: 'white' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-        <h1 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>Workspace</h1>
+        <button
+          onClick={toggleSidebar}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.2rem', color: '#64748b', display: 'flex', alignItems: 'center' }}
+          title={isSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+        >
+          <PanelLeft size={18} />
+        </button>
+        <span style={{ fontWeight: 700, fontSize: '1.05rem', color: '#0f172a', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          FrAssist
+          <span style={{ fontSize: '0.65rem', background: '#dbeafe', color: '#1e40af', padding: '0.15rem 0.45rem', borderRadius: '9999px', fontWeight: 600 }}>v2.5</span>
+        </span>
         
-        {/* Mission Control Launcher Button */}
+        {/* Mission Control button */}
         <button
           onClick={onOpenMissionControl}
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '0.45rem',
-            padding: '0.4rem 0.85rem',
+            gap: '0.4rem',
+            padding: '0.35rem 0.75rem',
             borderRadius: '8px',
-            border: (workingAgentsCount > 0 || pendingApprovalsCount > 0) ? '1px solid #93c5fd' : '1px solid #e2e8f0',
-            background: (workingAgentsCount > 0 || pendingApprovalsCount > 0) ? '#f0f7ff' : '#f8fafc',
-            color: '#1e293b',
+            border: '1px solid #e2e8f0',
+            background: pendingApprovalsCount > 0 ? '#fef3c7' : '#f8fafc',
+            color: pendingApprovalsCount > 0 ? '#92400e' : '#334155',
             cursor: 'pointer',
-            fontSize: '0.82rem',
+            fontSize: '0.8rem',
             fontWeight: 600,
-            transition: 'all 0.2s',
-            boxShadow: (workingAgentsCount > 0 || pendingApprovalsCount > 0) ? '0 1px 4px rgba(59, 130, 246, 0.15)' : 'none'
+            transition: 'all 0.15s ease'
           }}
-          onMouseEnter={e => (e.currentTarget.style.background = '#e2e8f0')}
-          onMouseLeave={e => (e.currentTarget.style.background = (workingAgentsCount > 0 || pendingApprovalsCount > 0) ? '#f0f7ff' : '#f8fafc')}
+          title="Mission Control: Track subagents, approvals, and scheduled jobs"
         >
-          <Activity size={15} color="#2563eb" />
-          <span>Mission Control</span>
-          
-          {workingAgentsCount > 0 && (
-            <span style={{
-              fontSize: '0.7rem',
-              padding: '1px 6px',
-              borderRadius: '10px',
-              background: '#2563eb',
-              color: 'white',
-              fontWeight: 700
-            }}>
-              {workingAgentsCount} running
-            </span>
-          )}
-
+          <Activity size={14} color={pendingApprovalsCount > 0 ? '#d97706' : '#64748b'} />
+          Mission Control
           {pendingApprovalsCount > 0 && (
             <span style={{
-              fontSize: '0.7rem',
-              padding: '1px 6px',
-              borderRadius: '10px',
-              background: '#ea580c',
+              background: '#ef4444',
               color: 'white',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '2px'
+              borderRadius: '9999px',
+              padding: '0.1rem 0.4rem',
+              fontSize: '0.68rem',
+              fontWeight: 700
             }}>
-              <Clock size={10} />
-              {pendingApprovalsCount} waiting
+              {pendingApprovalsCount}
             </span>
           )}
         </button>
@@ -162,9 +158,32 @@ export function Header({
         {/* Model selector — always visible */}
         <select
           value={aiProvider}
-          onChange={(e) => setAiProvider(e.target.value as any)}
-          style={{ padding: '0.45rem 0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', fontSize: '0.85rem', cursor: 'pointer' }}
+          onChange={(e) => {
+            const val = e.target.value;
+            setAiProvider(val as any);
+            localStorage.setItem('frassist_ai_provider', val);
+            socket?.emit('set_default_llm_provider', { provider: val });
+          }}
+          style={{ padding: '0.45rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: 'white', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 500 }}
         >
+          <optgroup label="🚀 Smart Routing (Recommended)">
+            <option value="auto">⚡ Smart Hybrid Auto-Router</option>
+          </optgroup>
+
+          <optgroup label="⚡ Ollama Cloud (10 Top Frontier Models)">
+            <option value="ollama_cloud:glm-5.2:cloud">GLM 5.2 (1M Context - Repo Scale)</option>
+            <option value="ollama_cloud:deepseek-v4-flash:cloud">DeepSeek V4 Flash (284B MoE)</option>
+            <option value="ollama_cloud:deepseek-v4-pro:cloud">DeepSeek V4 Pro (1.6T MoE Reasoning)</option>
+            <option value="ollama_cloud:kimi-k2.7-code:cloud">Kimi K2.7 Code (Agentic Coding)</option>
+            <option value="ollama_cloud:minimax-m3:cloud">MiniMax M3 (1M Context SWE-Bench)</option>
+            <option value="ollama_cloud:qwen3.5:397b-cloud">Qwen 3.5 397B (Multilingual Concierge)</option>
+            <option value="ollama_cloud:gemma4:31b-cloud">Gemma 4 31B (Sub-300ms Clean Code)</option>
+            <option value="ollama_cloud:nemotron-3-ultra:cloud">Nemotron-3 Ultra (550B MoE Workflow)</option>
+            <option value="ollama_cloud:gpt-oss:20b-cloud">GPT-OSS 20B (Ultra-Fast General)</option>
+            <option value="ollama_cloud:rafw007/deepseek-v4-flash-fast:latest">DeepSeek-V4 Flash Fast (Ops/Terminal)</option>
+            <option value="ollama_cloud">Ollama Cloud (Default)</option>
+          </optgroup>
+
           <optgroup label="DigitalOcean Serverless GenAI">
             <option value="do:router:general">DO Router (Auto Cost-Optimized)</option>
             <option value="digitalocean">DO Custom Router (frassistrouter)</option>
@@ -172,10 +191,9 @@ export function Header({
             <option value="do:mistral-3-14B">DO Mistral 3 14B (Fast)</option>
           </optgroup>
           
-          <optgroup label="Other Cloud Providers">
-            <option value="gemini">Vertex Agents (Gemini 2.5 Flash Lite)</option>
+          <optgroup label="Google Gemini">
+            <option value="gemini">Google Gemini 2.5 Flash</option>
             <option value="vertex_research">Deep Research Agent</option>
-            <option value="perplexity">Perplexity Sonar</option>
           </optgroup>
           
           <optgroup label="Local Models (Ollama)">
@@ -194,7 +212,7 @@ export function Header({
           </optgroup>
         </select>
 
-        {aiProvider.startsWith('ollama') && (
+        {aiProvider.startsWith('ollama') && !aiProvider.startsWith('ollama_cloud') && (
           <button
             onClick={() => {
               const defaultModel = ollamaStatus?.availableModels?.[0]?.name || 'qwen2.5-coder:14b';
@@ -212,9 +230,9 @@ export function Header({
           </button>
         )}
 
-        {ollamaStatus?.status === 'Offline' && (
+        {ollamaStatus?.status === 'Offline' && aiProvider.startsWith('ollama') && !aiProvider.startsWith('ollama_cloud') && (
           <button
-            onClick={() => socket?.emit('run_ollama_model', { model: '--help' })} // A dummy command to trigger start logic if we had any, but for now just a helper
+            onClick={() => socket?.emit('run_ollama_model', { model: '--help' })}
             style={{ 
               background: '#fee2e2', color: '#ef4444', border: '1px solid #fecaca', 
               borderRadius: '8px', padding: '0.45rem 0.75rem', fontSize: '0.75rem', fontWeight: 600,
@@ -269,7 +287,7 @@ export function Header({
 
           {showSettingsMenu && (
             <div style={{
-              position: 'absolute', top: 'calc(100% + 6px)', right: 0, width: '260px',
+              position: 'absolute', top: 'calc(100% + 6px)', right: 0, width: '280px',
               background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0',
               boxShadow: '0 8px 24px rgba(0,0,0,0.1)', zIndex: 200, overflow: 'hidden'
             }}>
@@ -278,7 +296,14 @@ export function Header({
               <div style={{ padding: '0.6rem 0.75rem', borderBottom: '1px solid #f1f5f9' }}>
                 <div style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>API Keys</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem' }}>
-                  {([['gemini', 'Vertex', keyStatus.hasGemini], ['tavily', 'Tavily', keyStatus.hasTavily], ['telegram', 'Telegram', keyStatus.hasTelegram], ['perplexity', 'Perplexity', keyStatus.hasPerplexity]] as const).map(([key, label, ok]) => (
+                  {([
+                    ['ollama', 'Ollama Cloud', keyStatus.hasOllamaCloud],
+                    ['digitalocean', 'DigitalOcean', keyStatus.hasDigitalOcean],
+                    ['gemini', 'Vertex', keyStatus.hasGemini],
+                    ['perplexity', 'Perplexity', keyStatus.hasPerplexity],
+                    ['tavily', 'Tavily', keyStatus.hasTavily],
+                    ['telegram', 'Telegram', keyStatus.hasTelegram],
+                  ] as const).map(([key, label, ok]) => (
                     <button
                       key={key}
                       onClick={() => { setIsConfiguringKey(key as any); setShowSettingsMenu(false); }}
@@ -299,7 +324,10 @@ export function Header({
 
               {/* Tools section */}
               <div style={{ padding: '0.5rem 0.75rem', borderBottom: '1px solid #f1f5f9' }}>
-                <div style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>Tools</div>
+                <div style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>Tools & Options</div>
+                {onOpenSettings && (
+                  <MenuItem icon={<Settings size={14} color="#2563eb" />} label="Full AI & API Settings..." onClick={() => { onOpenSettings(); setShowSettingsMenu(false); }} />
+                )}
                 <MenuItem icon={<Folder size={14} />} label="Knowledge Base" onClick={() => { setShowFiles(!showFiles); setShowSettingsMenu(false); }} />
                 <MenuItem icon={<Terminal size={14} />} label={showLogs ? 'Hide Log Stream' : 'Show Log Stream'} onClick={() => { setShowLogs(!showLogs); setShowSettingsMenu(false); }} />
                 <MenuItem icon={isTtsEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />} label={isTtsEnabled ? 'Voice: On' : 'Voice: Off'} onClick={() => { toggleTts(); setShowSettingsMenu(false); }} />

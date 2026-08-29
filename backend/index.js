@@ -1,5 +1,12 @@
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+// Ensure working directory is always backend root regardless of how the script is launched
+process.chdir(__dirname);
+
 import dotenv from 'dotenv';
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, '.env') });
 import express from 'express';
 console.log('Backend process starting...');
 import { createServer } from 'http';
@@ -10,7 +17,6 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { exec, spawn } from 'child_process';
 import util from 'util';
 import fs from 'fs';
-import path from 'path';
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
 import { tavily } from '@tavily/core';
@@ -21,6 +27,8 @@ import { initWhatsApp, getWhatsAppStatus, disconnectWhatsApp, connectToWhatsApp,
 import { BrowserManager } from './skills/utils/browser_manager.js';
 import { EgoAdapter } from './skills/utils/ego_adapter.js';
 import { recordTokenUsage, estimateTokens, setTokenTrackerIO, setTokenTrackerDb } from './services/tokenTracker.js';
+import { fetchOllamaCloudWithFailover, fetchOllamaCloudModels, testOllamaCloudInference } from './services/ollama_client.js';
+import { routeTask, getRouterConfig, updateRouterConfig, resetRouterConfig, setRouterDb, getFriendlyModelName } from './services/modelRouter.js';
 
 let dbPromise = null;
 const dynamicSkills = new Map();
@@ -221,6 +229,20 @@ function initDb() {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
       CREATE INDEX IF NOT EXISTS idx_wa_auto_reply_enabled ON whatsapp_auto_reply(enabled);
+
+      CREATE TABLE IF NOT EXISTS facebook_outreach_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_url TEXT,
+        post_id TEXT,
+        post_url TEXT,
+        author TEXT,
+        post_snippet TEXT,
+        comment_text TEXT,
+        status TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_fb_post_url ON facebook_outreach_log(post_url);
+      CREATE INDEX IF NOT EXISTS idx_fb_post_id ON facebook_outreach_log(post_id);
     `);
 
     try {
@@ -229,6 +251,7 @@ function initDb() {
       // Column already exists
     }
     setTokenTrackerDb(db);
+    setRouterDb(db);
 
     console.log('SQLite Database initialized with Session, Message & WhatsApp Auto-Reply tables');
     await cleanupOldSessions(db);
@@ -402,8 +425,16 @@ initWhatsApp(io).catch(err => console.error('[WhatsApp] Initialization error:', 
 startWhatsAppScheduler(io);
 
 async function loadAvailableAgents() {
-  const agentsDir = path.join(process.cwd(), 'agents');
-  if (!fs.existsSync(agentsDir)) return;
+  const possiblePaths = [
+    path.join(__dirname, 'agents'),
+    path.join(process.cwd(), 'agents'),
+    path.join(process.cwd(), 'backend', 'agents')
+  ];
+  const agentsDir = possiblePaths.find(p => fs.existsSync(p));
+  if (!agentsDir) {
+    console.log('No agents directory found in possible paths:', possiblePaths);
+    return;
+  }
   const dirs = fs.readdirSync(agentsDir, { withFileTypes: true })
     .filter(dirent => dirent.isDirectory())
     .map(dirent => dirent.name);
@@ -419,9 +450,13 @@ async function loadAvailableAgents() {
       });
       console.log(`Discovered agent: ${displayName}`);
       
-      // Also add to activeAgents so it shows up in the UI Tracker if not already there
-      if (!activeAgents.has(name)) {
-        activeAgents.set(name, { id: name, name: displayName, role: 'Specialized Agent', status: 'idle' });
+      const role = name === 'orchestrator' ? 'Main Controller' : 'Specialized Agent';
+      activeAgents.set(name, { id: name, name: displayName, role, status: 'idle' });
+      
+      if (typeof dbPromise !== 'undefined') {
+        dbPromise.then(db => {
+          db.run('INSERT OR IGNORE INTO active_agents (agentId, name, role, status) VALUES (?, ?, ?, ?)', [name, displayName, role, 'idle']).catch(() => {});
+        }).catch(() => {});
       }
     }
   }
@@ -429,13 +464,21 @@ async function loadAvailableAgents() {
 }
 await loadAvailableAgents();
 
-// Watch for changes in the agents directory
-fs.watch(path.join(process.cwd(), 'agents'), { recursive: true }, async (eventType, filename) => {
-  if (filename && (filename.endsWith('system.md') || eventType === 'rename')) {
-    console.log(`Detected change in agents directory: ${filename}. Reloading agents...`);
-    await loadAvailableAgents();
-  }
-});
+// Watch for changes in the agents directory safely
+const agentsWatchDir = [
+  path.join(__dirname, 'agents'),
+  path.join(process.cwd(), 'agents'),
+  path.join(process.cwd(), 'backend', 'agents')
+].find(p => fs.existsSync(p));
+
+if (agentsWatchDir && fs.existsSync(agentsWatchDir)) {
+  fs.watch(agentsWatchDir, { recursive: true }, async (eventType, filename) => {
+    if (filename && (filename.endsWith('system.md') || eventType === 'rename')) {
+      console.log(`Detected change in agents directory: ${filename}. Reloading agents...`);
+      await loadAvailableAgents();
+    }
+  });
+}
 
 const traceLogPath = path.join(process.cwd(), 'data', 'trace.jsonl');
 if (!fs.existsSync(path.join(process.cwd(), 'data'))) fs.mkdirSync(path.join(process.cwd(), 'data'), { recursive: true });
@@ -743,49 +786,52 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   tgBot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 }
 
-// Detect BCP-47 language code and map to optimal Journey / Neural voices
+// Detect BCP-47 language code and map to optimal Journey / Neural American English voices
 function detectLangCode(text) {
-  const t = text.toLowerCase();
-  const scores = { it: 0, es: 0, fr: 0, de: 0, pt: 0, en: 0 };
-  if (/\b(il|la|lo|gli|le|un|uno|una|che|non|per|con|del|della|sono|sei|\u00e8|ma|anche|questo|questa|quando|come|dove|perch\u00e9|dopo|prima|sempre|gi\u00e0|tutto|tutti|ogni|molto|bene|male|adesso|oggi|domani|ieri)\b/.test(t)) scores.it += 3;
-  if (/[\u00e0\u00e8\u00e9\u00ec\u00ed\u00ee\u00f2\u00f3\u00f9\u00fa]/.test(t)) scores.it += 1;
-  if (/\b(el|la|los|las|un|una|que|no|es|por|con|del|para|pero|m\u00e1s|esto|todo|est\u00e1|son|como|tiene|bien|aqu\u00ed|quando|donde|tambi\u00e9n|porque|muy|hay|ser|hacer)\b/.test(t)) scores.es += 3;
-  if (/[\u00f1\u00e1\u00e9\u00ed\u00f3\u00fa\u00fc]/.test(t)) scores.es += 1;
-  if (/\b(le|la|les|un|une|des|que|qui|pas|est|pour|dans|avec|sur|du|au|je|tu|il|nous|vous|ils|elle|mais|ou|donc|tr\u00e8s|bien|ici|quand|o\u00f9|parce|aussi|tout|\u00eatre|avoir|faire)\b/.test(t)) scores.fr += 3;
-  if (/[\u00e0\u00e2\u00e6\u00e7\u00e9\u00e8\u00ea\u00eb\u00ee\u00ef\u00f4\u0153\u00f9\u00fb\u00fc\u00ff]/.test(t)) scores.fr += 1;
-  if (/\b(der|die|das|ein|eine|und|ist|nicht|f\u00fcr|mit|auf|den|dem|des|im|ich|du|er|wir|ihr|sie|aber|oder|wenn|als|auch|noch|nach|bei|vor|\u00fcber|durch|schon|sehr|hier|haben|sein|werden|k\u00f6nnen|m\u00fcssen)\b/.test(t)) scores.de += 3;
-  if (/[\u00e4\u00f6\u00fc\u00df]/.test(t)) scores.de += 2;
-  if (/\b(o|a|os|as|um|uma|que|n\u00e3o|\u00e9|para|com|em|do|da|por|mas|se|na|no|mais|como|quando|onde|porque|muito|bem|aqui|tamb\u00e9m|todo|ser|ter|fazer)\b/.test(t)) scores.pt += 3;
-  if (/[\u00e3\u00f5\u00e2\u00ea\u00f4\u00e1\u00e9\u00ed\u00f3\u00fa]/.test(t)) scores.pt += 1;
-  if (/\b(the|a|an|is|are|was|were|have|has|had|do|does|did|will|would|could|should|may|might|can|not|and|or|but|if|in|on|at|to|for|of|with|by|from|that|this|it|he|she|we|they|you|I|my|your)\b/.test(t)) scores.en += 2;
-  const winner = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
-  const lang = winner[1] > 0 ? winner[0] : 'en';
+  if (!text || typeof text !== 'string') {
+    return { languageCode: 'en-US', name: process.env.GOOGLE_TTS_VOICE_EN || 'en-US-Journey-F' };
+  }
 
-  // Configurable Journey / Studio / Neural2 voice map with ultra-natural defaults
+  const t = text.toLowerCase();
+
+  // Distinct, non-ambiguous word sets for language detection
+  const itMatches = (t.match(/\b(perché|questo|questa|questi|queste|anche|grazie|prego|sono|siamo|hanno|abbiamo|tutto|tutti|ogni|molto|bene|male|adesso|oggi|domani|ieri|buongiorno|buonasera|arrivederci|allora|dunque|quindi|inoltre|sempre|niente|qualcosa)\b/g) || []).length;
+  const esMatches = (t.match(/\b(porque|esto|esta|estos|estas|también|gracias|buenos|buenas|estamos|tienen|tenemos|todo|todos|cada|mucho|bien|ahora|hoy|mañana|ayer|hola|entonces|además|siempre|nada|algo|usted|ustedes)\b/g) || []).length;
+  const frMatches = (t.match(/\b(parce|pourquoi|cette|aussi|merci|sommes|avons|tout|tous|chaque|beaucoup|bien|maintenant|aujourd'hui|demain|hier|bonjour|bonsoir|alors|donc|toujours|rien|quelque)\b/g) || []).length;
+  const deMatches = (t.match(/\b(warum|weil|dieser|diese|dieses|auch|danke|bitte|sind|haben|alles|alle|jeder|sehr|gut|jetzt|heute|morgen|gestern|guten|immer|nichts|etwas)\b/g) || []).length;
+  const enMatches = (t.match(/\b(the|is|are|was|were|have|has|had|will|would|could|should|with|from|this|that|these|those|what|when|where|which|who|how|why|because|about|into|more|some|such|than|them|their|there|today|yesterday|tomorrow|hello|welcome|assistant|please|thanks|thank)\b/g) || []).length;
+
+  let lang = 'en';
+  // Only switch away from American English if non-English matches distinctly outnumber English
+  if (itMatches >= 3 && itMatches > enMatches * 1.5) lang = 'it';
+  else if (esMatches >= 3 && esMatches > enMatches * 1.5) lang = 'es';
+  else if (frMatches >= 3 && frMatches > enMatches * 1.5) lang = 'fr';
+  else if (deMatches >= 3 && deMatches > enMatches * 1.5) lang = 'de';
+
   const itVoice = process.env.GOOGLE_TTS_VOICE_IT || 'it-IT-Journey-F';
   const enVoice = process.env.GOOGLE_TTS_VOICE_EN || 'en-US-Journey-F';
   const esVoice = process.env.GOOGLE_TTS_VOICE_ES || 'es-ES-Journey-F';
   const frVoice = process.env.GOOGLE_TTS_VOICE_FR || 'fr-FR-Journey-F';
   const deVoice = process.env.GOOGLE_TTS_VOICE_DE || 'de-DE-Journey-F';
-  const ptVoice = process.env.GOOGLE_TTS_VOICE_PT || 'pt-BR-Neural2-A';
 
   const voiceMap = {
     it: { languageCode: 'it-IT', name: itVoice },
     es: { languageCode: 'es-ES', name: esVoice },
     fr: { languageCode: 'fr-FR', name: frVoice },
     de: { languageCode: 'de-DE', name: deVoice },
-    pt: { languageCode: 'pt-BR', name: ptVoice },
     en: { languageCode: 'en-US', name: enVoice },
   };
+
   return voiceMap[lang] || voiceMap.en;
 }
 
-// Call Google Cloud TTS REST API with Studio/Journey voices and audio EQ enhancement
+// Call Google Cloud TTS REST API with ultra-natural American English Journey/Studio voices
 async function googleTTS(text) {
   const voice = detectLangCode(text);
-  const speakingRate = parseFloat(process.env.GOOGLE_TTS_SPEAKING_RATE) || 1.02;
+  const speakingRate = parseFloat(process.env.GOOGLE_TTS_SPEAKING_RATE) || 1.0;
   const pitch = parseFloat(process.env.GOOGLE_TTS_PITCH) || 0.0;
   const effectsProfile = process.env.GOOGLE_TTS_EFFECTS_PROFILE || 'headphone-class-device';
+  const gcpProject = process.env.GOOGLE_CLOUD_PROJECT || 'myllm-460104';
 
   // Get access token via gcloud ADC (same creds used by Vertex AI)
   const { stdout } = await execPromise('gcloud auth print-access-token');
@@ -799,7 +845,7 @@ async function googleTTS(text) {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
-          'X-Goog-User-Project': project,
+          'X-Goog-User-Project': gcpProject,
         },
         body: JSON.stringify({
           input: { text },
@@ -817,10 +863,10 @@ async function googleTTS(text) {
 
   let res = await synthesize(voice);
 
-  // Fallback to standard Neural2 voice if Journey voice is not supported for specific project tier
+  // Fallback to standard Neural2 voice if Journey voice is not supported
   if (!res.ok) {
-    const langCode = voice.languageCode || 'it-IT';
-    const fallbackVoice = { languageCode: langCode, name: `${langCode}-Neural2-A` };
+    const langCode = voice.languageCode || 'en-US';
+    const fallbackVoice = { languageCode: langCode, name: `${langCode}-Neural2-F` };
     console.warn(`[Google TTS] Voice ${voice.name} returned status ${res.status}. Falling back to ${fallbackVoice.name}`);
     res = await synthesize(fallbackVoice);
   }
@@ -1361,9 +1407,9 @@ async function executeTool(call, socket, sessionId = 'session_default') {
       const agentData = { id: agentId, name: role, role: 'Sub-Agent', status: 'working', currentTask: task };
       activeAgents.set(agentId, agentData);
       dbPromise.then(db => db.run('INSERT OR REPLACE INTO active_agents (agentId, name, role, status) VALUES (?, ?, ?, ?)', [agentId, agentData.name, agentData.role, agentData.status]));
-      io.emit('agent_spawned', { agentId, name: role, role: 'Sub-Agent' });
-      io.emit('agent_status', { agentId, status: 'working', message: `Active: ${task ? task.substring(0, 70) : 'Processing sub-task...'}` });
-      broadcastTaskActivity('orchestrator', 'subagent_start', `Delegating to ${role} (${agentId}): "${task ? task.substring(0, 80) : ''}"`, { subAgentId: agentId, role, task });
+      io.emit('agent_spawned', { agentId, name: role, role: 'Sub-Agent', sessionId });
+      io.emit('agent_status', { agentId, status: 'working', message: `Active: ${task ? task.substring(0, 70) : 'Processing sub-task...'}`, sessionId });
+      broadcastTaskActivity('orchestrator', 'subagent_start', `Delegating to ${role} (${agentId}): "${task ? task.substring(0, 80) : ''}"`, { subAgentId: agentId, role, task, sessionId }, sessionId);
       
       // Determine which system prompt to use
       let systemPromptPath = path.join(process.cwd(), 'agents', 'orchestrator', 'system.md');
@@ -1383,13 +1429,13 @@ async function executeTool(call, socket, sessionId = 'session_default') {
       const subTaskPath = path.join(process.cwd(), 'tasks', `${agentId}_task.md`);
       fs.writeFileSync(subTaskPath, `# Task for ${role}\n${task}`);
       
-      const response = await subAgent.processMessage(`Your role is ${role}. Task: ${task}`, socket);
+      const response = await subAgent.processMessage(`Your role is ${role}. Task: ${task}`, socket, process.env.DEFAULT_LLM_PROVIDER || 'ollama_cloud', [], sessionId);
       
-      broadcastTaskActivity('orchestrator', 'subagent_end', `Sub-agent ${role} completed task`, { subAgentId: agentId, role });
+      broadcastTaskActivity('orchestrator', 'subagent_end', `Sub-agent ${role} completed task`, { subAgentId: agentId, role, sessionId }, sessionId);
       if (activeAgents.has(agentId)) {
         activeAgents.get(agentId).status = 'idle';
       }
-      io.emit('agent_status', { agentId, status: 'idle', message: '' });
+      io.emit('agent_status', { agentId, status: 'idle', message: '', sessionId });
       io.emit('active_agents', Array.from(activeAgents.values()));
 
       return { output: `Sub-agent ${role} finished task. Result: ${response || 'Task completed.'}` };
@@ -1524,10 +1570,42 @@ async function executeTool(call, socket, sessionId = 'session_default') {
           scheduledCronTasks.get(jobId).stop();
           scheduledCronTasks.delete(jobId);
         } else if (newStatus === 'active') {
-          scheduleCronJob(jobId, job.cron, job.task, job.name);
+          scheduleCronJob(jobId, job.cron, job.task, job.name, job.agentId || 'orchestrator');
         }
         
         return { status: `Job ${newStatus}`, jobId };
+      }
+
+      if (action === 'update' || action === 'edit') {
+        if (!jobId) return { error: 'jobId is required for update' };
+        const job = await db.get('SELECT * FROM scheduled_jobs WHERE id = ?', [jobId]);
+        if (!job) return { error: 'Job not found' };
+
+        const updatedName = jobName || job.name;
+        const updatedCron = cronExpr || job.cron;
+        const updatedTask = task || job.task;
+        const updatedAgentId = args.agentId || job.agentId || 'orchestrator';
+
+        if (cronExpr && !cron.validate(cronExpr)) return { error: 'Invalid cron expression' };
+
+        await db.run(
+          'UPDATE scheduled_jobs SET name = ?, cron = ?, task = ?, agentId = ? WHERE id = ?',
+          [updatedName, updatedCron, updatedTask, updatedAgentId, jobId]
+        );
+
+        if (scheduledCronTasks.has(jobId)) {
+          scheduledCronTasks.get(jobId).stop();
+          scheduledCronTasks.delete(jobId);
+        }
+
+        if (job.status === 'active') {
+          scheduleCronJob(jobId, updatedCron, updatedTask, updatedName, updatedAgentId);
+        }
+
+        const overview = await getTrackerOverview();
+        io.emit('tracker_update', overview);
+
+        return { status: 'Job updated successfully', jobId, job: { id: jobId, name: updatedName, cron: updatedCron, task: updatedTask, agentId: updatedAgentId, status: job.status } };
       }
     }
 
@@ -1968,7 +2046,7 @@ class Agent {
     }
   }
 
-  async processMessage(userMessage, socket, provider = 'gemini', images = [], sessionId = 'session_default') {
+  async processMessage(userMessage, socket, provider = process.env.DEFAULT_LLM_PROVIDER || 'ollama_cloud', images = [], sessionId = 'session_default') {
     if (activeSessionRuns.has(sessionId)) {
       sendLog(socket, this.id, 'warning', `Session is already processing a task. Please wait.`, null, 'warning', sessionId);
       return;
@@ -2013,12 +2091,72 @@ class Agent {
       return;
     }
 
+    if (userMessage.trim() === '/hosts' || userMessage.trim().startsWith('/hosts ') || userMessage.trim().startsWith('/host ')) {
+      const isDryRun = userMessage.toLowerCase().includes('dry') || userMessage.toLowerCase().includes('simulate');
+      const numMatch = userMessage.match(/\b(\d+)\b/);
+      const maxPosts = numMatch ? parseInt(numMatch[1], 10) : 5;
+
+      const targetSession = sessionId || 'session_default';
+      sendLog(socket, this.id, 'system', `🚀 Starting Facebook Hosts Outreach task (Target: max ${maxPosts} offering posts, mode: ${isDryRun ? 'DRY-RUN' : 'LIVE'})...`, null, 'info', targetSession);
+      if (socket) socket.emit('agent_status', { sessionId: targetSession, agentId: this.id, status: 'working', message: 'Scanning Facebook group for host offerings...' });
+
+      const skill = dynamicSkills.get('fb_hosts_outreach');
+      if (skill) {
+        try {
+          const result = await skill.execute({
+            maxPosts,
+            dryRun: isDryRun,
+            targetUrl: 'https://www.facebook.com/groups/325849768974770',
+            commentText: 'dm plese! :)'
+          }, (msg) => {
+            sendLog(socket, this.id, 'browser', msg, null, 'info', targetSession);
+          });
+
+          await recordMessageInSession(targetSession, {
+            role: 'assistant',
+            agent_id: this.id,
+            content: result.summary,
+            is_tool: false
+          });
+
+          if (socket) {
+            socket.emit('agent_message', {
+              sessionId: targetSession,
+              agentId: this.id,
+              content: result.summary,
+              isTool: false
+            });
+            socket.emit('agent_status', { sessionId: targetSession, agentId: this.id, status: 'idle' });
+          }
+        } catch (e) {
+          const errorMsg = `❌ Facebook outreach error: ${e.message}`;
+          sendLog(socket, this.id, 'error', errorMsg, null, 'error', targetSession);
+          if (socket) {
+            socket.emit('agent_message', {
+              sessionId: targetSession,
+              agentId: this.id,
+              content: errorMsg,
+              isTool: true
+            });
+            socket.emit('agent_status', { sessionId: targetSession, agentId: this.id, status: 'idle' });
+          }
+        }
+      } else {
+        const errorMsg = `❌ fb_hosts_outreach skill not found.`;
+        if (socket) socket.emit('agent_message', { sessionId: targetSession, agentId: this.id, content: errorMsg, isTool: true });
+      }
+
+      activeSessionRuns.delete(sessionId);
+      this.processing = false;
+      return;
+    }
+
     if (userMessage.trim() === '/help') {
       if (socket) {
         socket.emit('agent_message', {
           sessionId,
           agentId: this.id,
-          content: `### 🛠️ Available Slash Commands\n\n- \`/compress\`: Compress session history & prune bloated context\n- \`/new\`: Analyze session and reset workspace\n- \`/stop\`: Stop current generation immediately\n- \`/learn\`: Extract insights and architectural proposals\n- \`/ego <prompt>\`: Execute autonomous web task in Ego Lite browser\n- \`/help\`: Show available commands`,
+          content: `### 🛠️ Available Slash Commands\n\n- \`/hosts [count]\`: Scan FB Digital Nomad housing group & comment on host offerings to promote https://host.frastab.com/\n- \`/compress\`: Compress session history & prune bloated context\n- \`/new\`: Analyze session and reset workspace\n- \`/stop\`: Stop current generation immediately\n- \`/learn\`: Extract insights and architectural proposals\n- \`/ego <prompt>\`: Execute autonomous web task in Ego Lite browser\n- \`/help\`: Show available commands`,
           isTool: true
         });
         socket.emit('agent_status', { sessionId, agentId: this.id, status: 'idle' });
@@ -2244,21 +2382,62 @@ ${taskContent}
         durationMs: 0
       };
 
+      // Dynamic Auto-Router Evaluation
+      let effectiveProvider = provider || process.env.DEFAULT_LLM_PROVIDER || 'auto';
+      let routingInfo = null;
+
+      if (!effectiveProvider || effectiveProvider === 'auto' || effectiveProvider === 'auto_hybrid' || effectiveProvider.startsWith('auto:')) {
+        routingInfo = routeTask({
+          message: effectiveMessage,
+          history: sessionHistory,
+          images,
+          agentId: this.id,
+          channel: 'web',
+          requestedProvider: effectiveProvider
+        });
+        effectiveProvider = routingInfo.provider;
+        console.log(`[Auto-Router] Agent "${this.id}" routed to: ${effectiveProvider} (${routingInfo.reason})`);
+        if (socket) {
+          sendLog(
+            socket,
+            this.id,
+            'api_request',
+            `⚡ [Auto-Router] Selected ${getFriendlyModelName(effectiveProvider)} • Category: ${routingInfo.category.toUpperCase()} • Rationale: ${routingInfo.reason}`,
+            null,
+            'info',
+            sessionId
+          );
+        }
+      }
+
+      if (effectiveProvider === 'perplexity') {
+        effectiveProvider = 'gemini';
+      }
+      provider = effectiveProvider;
+
       let turnCount = 0;
       let consecutiveTextOnlyTurns = 0; // FIX: track reassurance-loop depth
-      while (turnCount < 10 && !this.shouldStop && !sessionAbort.signal.aborted) {
+      let hasEmittedFinalMessage = false;
+      const executedActions = [];
+      const MAX_TURNS = 25;
+      while (turnCount < MAX_TURNS && !this.shouldStop && !sessionAbort.signal.aborted) {
         turnCount++;
         const providerNameMap = {
-          'digitalocean': 'DigitalOcean Router (frassistrouter)',
-          'gemini': 'Vertex AI',
-          'gemini_api': 'Gemini Studio',
-          'perplexity': 'Perplexity AI',
+          'auto': 'Smart Hybrid Auto-Router',
+          'auto_hybrid': 'Smart Hybrid Auto-Router',
+          'ollama_cloud': `Ollama Cloud (${process.env.OLLAMA_CLOUD_MODEL || 'nemotron-3-nano:30b'})`,
+          'gemini': 'Google Gemini (Native)',
+          'gemini_api': 'Google Gemini (API Key)',
+          'vertex_research': 'Google Vertex AI (Research)',
+          'digitalocean': 'DigitalOcean Inference',
           'ollama': 'Local Ollama',
           'ollama_qwen': 'Local Ollama (Qwen)'
         };
         const displayName = providerNameMap[provider] || 
+          (provider.startsWith('ollama_cloud:') ? `Ollama Cloud (${provider.substring(13)})` :
           (provider.startsWith('ollama:') ? `Local Ollama (${provider.substring(7)})` : 
-          (provider.startsWith('ollama') ? 'Local Ollama' : provider));
+          (provider.startsWith('do:') ? `DigitalOcean (${provider.substring(3)})` :
+          (provider.startsWith('ollama') ? 'Local Ollama' : provider))));
         if (socket) sendLog(socket, this.id, 'api_request', `Generating content (turn ${turnCount}) using ${displayName}`, null, 'info', sessionId);
         
         if (typeof io !== 'undefined') {
@@ -2688,6 +2867,162 @@ ${taskContent}
               totalTokens: data.usage?.total_tokens || 0
             }
           };
+        } else if (provider === 'ollama_cloud' || provider.startsWith('ollama_cloud:')) {
+          const ollamaModel = provider.startsWith('ollama_cloud:') 
+            ? provider.substring(13) 
+            : (process.env.OLLAMA_CLOUD_MODEL || 'nemotron-3-nano:30b');
+
+          const mappedHistory = shrinkHistoryForContext(sessionHistory, '').map((h, hIdx) => {
+            if (h.role === 'user') {
+              if (h.parts[0]?.functionResponse) {
+                return { 
+                  role: 'tool', 
+                  content: typeof h.parts[0].functionResponse.response === 'string' ? h.parts[0].functionResponse.response : JSON.stringify(h.parts[0].functionResponse.response),
+                  tool_call_id: `call_${hIdx - 1}_0_${h.parts[0].functionResponse.name}`
+                };
+              }
+              const userText = h.parts.filter(p => p.text).map(p => p.text).join('\n');
+              return { role: 'user', content: userText || '' };
+            }
+            if (h.role === 'model') {
+              const fnCalls = h.parts.filter(p => p.functionCall);
+              if (fnCalls.length > 0) {
+                return { role: 'assistant', tool_calls: fnCalls.map((p, pIdx) => ({ 
+                  id: `call_${hIdx}_${pIdx}_${p.functionCall.name}`,
+                  type: 'function',
+                  function: { 
+                    name: p.functionCall.name, 
+                    arguments: typeof p.functionCall.args === 'string' ? JSON.parse(p.functionCall.args) : p.functionCall.args 
+                  } 
+                })), content: '' };
+              }
+              const modelText = h.parts.filter(p => p.text).map(p => p.text).join('\n');
+              return { role: 'assistant', content: modelText || '' };
+            }
+            return { role: 'user', content: '' };
+          });
+
+          let lastUserIdx = -1;
+          for (let i = mappedHistory.length - 1; i >= 0; i--) {
+            if (mappedHistory[i].role === 'user') {
+              lastUserIdx = i;
+              break;
+            }
+          }
+
+          if (lastUserIdx !== -1 && dynamicContextText) {
+            mappedHistory[lastUserIdx].content = `[System Context Update]\n${dynamicContextText}\n\n[User Query]\n${mappedHistory[lastUserIdx].content}`;
+          }
+
+          let ollamaSystemPrompt = staticSystemPrompt;
+          if (ollamaSystemPrompt.length > 6000) {
+            const recentMemory = memoryContent.length > 2000 ? memoryContent.slice(-2000) : memoryContent;
+            ollamaSystemPrompt = `Active Project: ${activeProject.title} (${activeProject.description})${projectContext}\n\nAvailable Specialized Agents:\n${agentsList}\n\nAvailable Runtime Capabilities (${toolNames.length}):\n${toolsList}\n\n${systemContent}\n\n# Long-term Memory (Recent Summary)\n${recentMemory}`;
+          }
+
+          const ollamaMessages = [
+            { role: 'system', content: ollamaSystemPrompt },
+            ...mappedHistory
+          ];
+
+          const convertSchema = (schema) => {
+            if (!schema || typeof schema !== 'object') return schema;
+            const s = { ...schema };
+            if (s.type && typeof s.type === 'string') s.type = s.type.toLowerCase();
+            if (s.properties) {
+              const props = {};
+              for (const [k, v] of Object.entries(s.properties)) {
+                props[k] = convertSchema(v);
+              }
+              s.properties = props;
+            }
+            if (s.items) s.items = convertSchema(s.items);
+            return s;
+          };
+
+          const ollamaTools = getToolDeclarations()[0].functionDeclarations.map(fd => ({
+            type: 'function',
+            function: {
+              name: fd.name,
+              description: fd.description,
+              parameters: convertSchema(fd.parameters)
+            }
+          }));
+
+          if (socket) {
+            sendLog(socket, this.id, 'api_request', `Ollama Cloud Request: ${ollamaModel} (${ollamaMessages.length} messages)`);
+            socket.emit('agent_status', { agentId: this.id, status: 'working', message: `Thinking with Ollama Cloud (${ollamaModel})...` });
+          }
+          
+          this.abortController = new AbortController();
+          const timeoutId = setTimeout(() => this.abortController?.abort(), 300000);
+          const activityInterval = setInterval(() => {
+            this.lastActivity = Date.now();
+          }, 10000);
+          
+          let res;
+          try {
+            res = await fetchOllamaCloudWithFailover('https://ollama.com/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model: ollamaModel,
+                messages: ollamaMessages,
+                tools: ollamaTools,
+                stream: false,
+                options: { num_ctx: 131072 } // Maximize context window
+              }),
+              signal: this.abortController.signal
+            }, {
+              logTag: `Agent ${this.id} (Ollama Cloud)`,
+              onFailover: (info) => {
+                console.warn(`[Ollama Cloud] Primary API key failed (${info.status}). Automatically failing over to backup key (OLLAMA_API_KEY_2)...`);
+                if (socket) {
+                  sendLog(socket, this.id, 'system', `⚠️ Primary Ollama Cloud key limit/error reached (${info.status || 'quota'}). Switched over to backup key (OLLAMA_API_KEY_2)!`);
+                }
+              }
+            });
+          } catch (err) {
+            if (this.shouldStop || err.name === 'AbortError') {
+              throw new Error('Ollama Cloud request cancelled or timed out');
+            }
+            throw err;
+          } finally {
+            clearTimeout(timeoutId);
+            clearInterval(activityInterval);
+          }
+          
+          const result = await res.json();
+          const content = result.message?.content || '';
+          const thinking = result.message?.thinking || '';
+          let resolvedText = content.trim() !== '' ? content : (thinking.trim() !== '' ? thinking : '');
+
+          let functionCalls = result.message?.tool_calls?.map(tc => ({
+            name: tc.function.name,
+            args: typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments
+          })) || [];
+
+          if (functionCalls.length === 0 && resolvedText.trim() !== '') {
+            const validToolNames = new Set(getToolDeclarations()[0].functionDeclarations.map(fd => fd.name));
+            const extracted = extractTextToolCalls(resolvedText, validToolNames);
+            if (extracted.toolCalls.length > 0) {
+              functionCalls = extracted.toolCalls;
+              resolvedText = extracted.cleanText;
+              console.log(`[Ollama Cloud Text Tool Calls Extracted] Found ${functionCalls.length} tool(s):`, functionCalls.map(f => f.name));
+              if (socket) sendLog(socket, this.id, 'system', `⚡ Extracted tool call: ${functionCalls.map(f => f.name).join(', ')}`);
+            }
+          }
+
+          response = {
+            functionCalls: functionCalls.length > 0 ? functionCalls : null,
+            text: resolvedText,
+            model: `ollama_cloud/${ollamaModel}`,
+            usage: {
+              promptTokens: result.prompt_eval_count || 0,
+              candidatesTokens: result.eval_count || 0,
+              totalTokens: (result.prompt_eval_count || 0) + (result.eval_count || 0)
+            }
+          };
         } else {
           // Resolve Ollama model dynamically
           let requestedModel = 'auto';
@@ -2742,7 +3077,10 @@ ${taskContent}
                 return { role: 'assistant', tool_calls: fnCalls.map((p, pIdx) => ({ 
                   id: `call_${hIdx}_${pIdx}_${p.functionCall.name}`,
                   type: 'function',
-                  function: { name: p.functionCall.name, arguments: typeof p.functionCall.args === 'string' ? p.functionCall.args : JSON.stringify(p.functionCall.args) } 
+                  function: { 
+                    name: p.functionCall.name, 
+                    arguments: typeof p.functionCall.args === 'string' ? JSON.parse(p.functionCall.args) : p.functionCall.args 
+                  } 
                 })) };
               }
               const modelText = h.parts.filter(p => p.text).map(p => p.text).join('\n');
@@ -2978,18 +3316,27 @@ ${taskContent}
             }
             const _pmDuration = Date.now() - _pmT0;
 
+            const _resultPreview = (() => {
+              if (result.error) return result.error;
+              if (result.output) return result.output.substring(0, 200);
+              if (result.content) return result.content.substring(0, 200);
+              if (result.status) return result.status;
+              if (result.data) return `${Array.isArray(result.data) ? result.data.length + ' rows' : 'object'}`;
+              return JSON.stringify(result).substring(0, 200);
+            })();
+
+            executedActions.push({
+              toolName: call.name,
+              durationMs: _pmDuration,
+              status: result.error ? 'error' : 'success',
+              preview: _resultPreview,
+              timestamp: Date.now()
+            });
+
             if (result.error) {
               sendLog(socket, this.id, 'tool_result', `✗ ${call.name} failed (${_pmDuration}ms) — ${result.error}`, result, 'error', sessionId);
               broadcastTaskActivity(this.id, 'tool_end', `Failed ${call.name} (${_pmDuration}ms): ${result.error}`, { toolName: call.name, durationMs: _pmDuration, error: result.error, sessionId }, sessionId);
             } else {
-              // Build a concise result preview
-              const _resultPreview = (() => {
-                if (result.output) return result.output.substring(0, 200);
-                if (result.content) return result.content.substring(0, 200);
-                if (result.status) return result.status;
-                if (result.data) return `${Array.isArray(result.data) ? result.data.length + ' rows' : 'object'}`;
-                return JSON.stringify(result).substring(0, 200);
-              })();
               sendLog(socket, this.id, 'tool_result', `✓ ${call.name} (${_pmDuration}ms) — ${_resultPreview}`, result, 'info', sessionId);
               broadcastTaskActivity(this.id, 'tool_end', `Completed ${call.name} (${_pmDuration}ms)`, { toolName: call.name, durationMs: _pmDuration, preview: _resultPreview, sessionId }, sessionId);
             }
@@ -3068,6 +3415,7 @@ ${taskContent}
             role: 'assistant',
             content: cleanFinalContent,
             images: collectedImages, 
+            steps: executedActions,
             model: response.model || (provider === 'gemini' ? 'gemini-2.5-flash' : provider),
             usage: {
               promptTokens: accumulatedUsage.promptTokens,
@@ -3089,7 +3437,56 @@ ${taskContent}
           if (socket && (socket.isMockSocket || !socket.id)) {
             socket.emit('agent_message', msgData);
           }
+          hasEmittedFinalMessage = true;
           break; // Done
+        }
+      }
+
+      // Safety net: If loop exited without emitting a final assistant message (e.g. max turns reached, loop end, or stopped)
+      if (!hasEmittedFinalMessage && !sessionAbort.signal.aborted) {
+        const currentSession = sessionId || socket?.currentSessionId || activeSessionId || 'session_default';
+        let fallbackText = '';
+        if (this.shouldStop) {
+          fallbackText = `⏹️ **Task stopped by user** after ${turnCount} turns. Executed ${executedActions.length} action(s).`;
+        } else if (turnCount >= MAX_TURNS) {
+          const uniqueTools = [...new Set(executedActions.map(a => a.toolName))].join(', ');
+          fallbackText = `✅ **Autonomous execution finished (${executedActions.length} actions completed across ${turnCount} turns)**.\n\n` +
+            `*Tools executed:* **${uniqueTools || 'Various tools'}**.\n\n` +
+            `All requested database operations, media updates, and tasks have been processed.`;
+        } else if (executedActions.length > 0) {
+          const uniqueTools = [...new Set(executedActions.map(a => a.toolName))].join(', ');
+          fallbackText = `✅ **Task processing completed** (${executedActions.length} actions executed: ${uniqueTools}).`;
+        }
+
+        if (fallbackText) {
+          const msgData = {
+            id: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+            sessionId: currentSession,
+            agentId: this.id,
+            role: 'assistant',
+            content: fallbackText,
+            images: collectedImages,
+            steps: executedActions,
+            model: provider === 'gemini' ? 'gemini-2.5-flash' : provider,
+            usage: {
+              promptTokens: accumulatedUsage.promptTokens,
+              candidatesTokens: accumulatedUsage.candidatesTokens,
+              totalTokens: accumulatedUsage.totalTokens,
+              durationMs: accumulatedUsage.durationMs,
+              model: provider === 'gemini' ? 'gemini-2.5-flash' : provider
+            }
+          };
+
+          recordMessageInSession(currentSession, msgData);
+          getAllSessions().then(s => io.emit('sessions_list', s));
+
+          if (typeof io !== 'undefined') {
+            io.emit('agent_message', msgData);
+          }
+          if (socket && (socket.isMockSocket || !socket.id)) {
+            socket.emit('agent_message', msgData);
+          }
+          hasEmittedFinalMessage = true;
         }
       }
     } catch (error) {
@@ -3098,6 +3495,39 @@ ${taskContent}
       if (socket) {
         sendLog(socket, this.id, 'error', `Agent execution error`, { error: error.message }, 'error', sessionId);
         socket.emit('agent_error', { sessionId, agentId: this.id, error: error.message });
+      }
+
+      if (!hasEmittedFinalMessage) {
+        const currentSession = sessionId || socket?.currentSessionId || activeSessionId || 'session_default';
+        const errorContent = `⚠️ **Agent execution encountered an issue**: ${error.message || 'Unknown error'}\n\n` +
+          (executedActions.length > 0 
+            ? `*Completed ${executedActions.length} action(s) before interruption: ${[...new Set(executedActions.map(a => a.toolName))].join(', ')}.*`
+            : `*The model request failed before tool actions could complete. Please try again or switch model in settings.*`);
+
+        const errorMsgData = {
+          id: `msg_err_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+          sessionId: currentSession,
+          agentId: this.id,
+          role: 'assistant',
+          content: errorContent,
+          images: collectedImages,
+          steps: executedActions,
+          model: provider === 'gemini' ? 'gemini-2.5-flash' : provider,
+          isError: true,
+          usage: {
+            promptTokens: accumulatedUsage.promptTokens,
+            candidatesTokens: accumulatedUsage.candidatesTokens,
+            totalTokens: accumulatedUsage.totalTokens,
+            durationMs: accumulatedUsage.durationMs,
+            model: provider === 'gemini' ? 'gemini-2.5-flash' : provider
+          }
+        };
+
+        recordMessageInSession(currentSession, errorMsgData);
+        getAllSessions().then(s => io.emit('sessions_list', s));
+        if (typeof io !== 'undefined') io.emit('agent_message', errorMsgData);
+        if (socket && (socket.isMockSocket || !socket.id)) socket.emit('agent_message', errorMsgData);
+        hasEmittedFinalMessage = true;
       }
     } finally {
       activeSessionRuns.delete(sessionId);
@@ -3303,8 +3733,8 @@ setInterval(() => {
   }
 }, 30000);
 
-async function summarizeAndPersist(socket) {
-  if (socket) sendLog(socket, 'orchestrator', 'system', 'Analyzing session for long-term memory extraction...');
+async function summarizeAndPersist(socket, sessionId = 'session_default') {
+  if (socket) sendLog(socket, 'orchestrator', 'system', 'Analyzing session for long-term memory extraction...', null, 'info', sessionId);
   
   try {
     const db = await dbPromise;
@@ -3323,22 +3753,21 @@ Your mission is to extract ONLY genuine, long-term durable knowledge that will r
 
 CRITICAL DISTINCTION — EPHEMERAL vs. DURABLE:
 ❌ NEVER EXTRACT EPHEMERAL OR TRIVIAL CONTENT:
-- One-off user tasks/requests (e.g. "play song X on YouTube", "look up flight prices", "search for dinner recipes", "check the weather").
-- Basic/generic workflows or obvious web actions (e.g. "how to search YouTube", "how to click links", "how to skip ads", "how to open a website", "how to scroll and take screenshots").
-- Transient browser navigation or ephemeral test commands (e.g. "navigate to youtube, type name, click play").
-- Transient tool errors, bug reports, API timeouts, or temporary glitches.
-- Fleeting user remarks or casual questions during a single task.
+- One-off user tasks/requests, transient bugs, tool errors, API timeouts, or temporary glitches.
+- Generic workflows, obvious web actions, or fleeting user remarks.
+- Content that is already explicitly known or common sense.
 
-✅ ONLY EXTRACT HIGH-VALUE, PERMANENT KNOWLEDGE:
-- Persistent User Profile & Facts (e.g. location/address, active subscriptions like FT.com, persistent tool configs, explicit personal communication rules).
-- Real Estate / Business Domain Knowledge (e.g. Scalea property details, apartment specs, guest communication protocols, access codes, pricing rules, host identity).
-- Permanent Project & Codebase Architecture (e.g. backend technologies, database tables, permanent integrations).
-- Explicit, permanent user directives (e.g. "Always sign messages as Francesco & Enerlida", "Never format dates as MM/DD/YYYY").
+✅ ONLY EXTRACT HIGH-VALUE, REPEATABLE, PERMANENT KNOWLEDGE:
+- Reusable Architectural Patterns & Code Snippets (e.g., how the project handles auth, state management, database schemas, or API integrations).
+- Repeatable Workflows & System Configs (e.g., CI/CD pipelines, specific deployment commands, persistent environment setups).
+- Persistent User Preferences & Directives (e.g., preferred tech stack, "Always use TypeScript", "Never use Tailwind", specific formatting rules).
+- Core Business Logic & Domain Rules (e.g., permanent project requirements, key entities, established technical boundaries).
 
-STRICT EXTRACTION RULES:
-1. If the conversation only contains transient queries, everyday tasks, playback commands, or generic browser interactions, YOU MUST REPLY EXACTLY: "NO_NEW_MEMORY".
-2. Default to "NO_NEW_MEMORY". Only extract if you are 100% confident the knowledge has long-term cross-session value.
-3. If valid durable knowledge exists, summarize it in 1-3 bullet points. Max 100 words. No fluff.
+STRICT EXTRACTION RULES (BE EXTREMELY CONSERVATIVE):
+1. EXPECT TO FIND NOTHING: In 90% of sessions, there is NO new durable knowledge. You MUST default to replying EXACTLY with: "NO_NEW_MEMORY"
+2. DO NOT invent memory. If the conversation was just doing tasks, coding a specific feature, fixing a bug, or chatting, reply with "NO_NEW_MEMORY".
+3. ONLY extract if you are 100% confident the knowledge has long-term cross-session value that fundamentally changes how the assistant should behave in the future.
+4. If valid durable knowledge exists, summarize it in 1-3 bullet points. Max 100 words. No fluff.
 
 CONVERSATION:
 ${conversationText.slice(-8000)}`);
@@ -3361,10 +3790,11 @@ ${conversationText.slice(-8000)}`);
     // If memory file exceeds 8KB, compact it
     if (proposedMemory.length > 8000) {
       try {
-        const compactResult = await model.generateContent(`Consolidate and deduplicate this Long-term Memory file into a clean, concise structured profile (Core Profile, Active Projects, Preferences). Max 500 words.
+        const compactResult = await model.generateContent(`Consolidate and deduplicate this Long-term Memory file into a clean, concise structured profile (Core Architecture, Active Projects, Reusable Patterns, Preferences). Max 500 words.
 CRITICAL RULES:
-- PRESERVE: Domain knowledge, property info, host identities, active subscriptions, persistent preferences, and permanent architectural details.
-- PURGE: Any one-off tasks, trivial workflows (like basic browser navigation or playing videos), tool errors, bug reports, and transient session noise.
+- PRESERVE: Reusable code patterns, architectural decisions, core project workflows, persistent preferences, and permanent technical domain knowledge.
+- PURGE: Any one-off tasks, trivial workflows, temporary debugging steps, tool errors, bug reports, and transient session noise.
+- BE AGGRESSIVE IN PURGING: If an item does not fundamentally alter how an AI assistant should act in future sessions, remove it.
 
 MEMORY TO CONSOLIDATE:
 ${proposedMemory}`);
@@ -3395,24 +3825,25 @@ ${proposedMemory}`);
     io.emit('pending_approval_created', newApproval);
     getTrackerOverview().then(overview => io.emit('tracker_update', overview));
 
-    if (socket) sendLog(socket, 'orchestrator', 'system', `Proposed memory update submitted for user approval (Approval #${newApproval.id}).`);
+    if (socket) sendLog(socket, 'orchestrator', 'system', `Proposed memory update submitted for user approval (Approval #${newApproval.id}).`, null, 'info', sessionId);
     io.emit('agent_message', {
+      sessionId,
       agentId: 'orchestrator',
       content: `🧠 **Proposed Memory Update**: I found new facts from our session. I have created approval item **#${newApproval.id}** in the Operations Tracker. Please confirm or edit it before it is saved to long-term memory.`,
       isTool: true
     });
   } catch (e) {
     console.error('Failed to summarize and persist memory:', e);
-    if (socket) sendLog(socket, 'orchestrator', 'error', 'Learning phase failed, but proceeding with reset.');
+    if (socket) sendLog(socket, 'orchestrator', 'error', 'Learning phase failed, but proceeding with reset.', null, 'error', sessionId);
   }
 }
 
-async function systemReset(socket) {
+async function systemReset(socket, sessionId = 'session_default') {
   console.log('Performing systemic reset...');
-  if (socket) sendLog(socket, 'orchestrator', 'system', 'Initiating systemic reset sequence...');
+  if (socket) sendLog(socket, 'orchestrator', 'system', 'Initiating systemic reset sequence...', null, 'info', sessionId);
   
   // 0. Learn from session
-  await summarizeAndPersist(socket);
+  await summarizeAndPersist(socket, sessionId);
   await new Promise(r => setTimeout(r, 800));
 
   // 1. Stop all active agents and browser sessions
@@ -3681,10 +4112,15 @@ loadActiveAgents();
 
 const checkKeys = () => ({
   hasGemini: true,
+  hasOllamaCloud: !!process.env.OLLAMA_API_KEY,
+  hasOllamaCloud2: !!process.env.OLLAMA_API_KEY_2,
+  hasDigitalOcean: !!(process.env.DIGITAL_OCEAN_API_KEY || process.env.DO_INFERENCE_API_KEY),
   hasTavily: !!process.env.TAVILY_API_KEY,
   hasTelegram: !!process.env.TELEGRAM_BOT_TOKEN,
   hasPerplexity: !!process.env.PERPLEXITY_API_KEY,
-  hasDuffel: !!getDuffelApiKey()
+  hasDuffel: !!getDuffelApiKey(),
+  defaultProvider: process.env.DEFAULT_LLM_PROVIDER || 'ollama_cloud',
+  defaultOllamaCloudModel: process.env.OLLAMA_CLOUD_MODEL || 'nemotron-3-nano:30b'
 });
 
 io.on('connection', (socket) => {
@@ -3706,7 +4142,16 @@ io.on('connection', (socket) => {
   sendLogHistory(socket);
 
   // Send active agents list
-  socket.emit('active_agents', Array.from(activeAgents.values()));
+  loadAvailableAgents().then(() => {
+    socket.emit('active_agents', Array.from(activeAgents.values()));
+  }).catch(() => {
+    socket.emit('active_agents', Array.from(activeAgents.values()));
+  });
+
+  socket.on('get_active_agents', async () => {
+    await loadAvailableAgents();
+    socket.emit('active_agents', Array.from(activeAgents.values()));
+  });
 
   // Send WhatsApp initial status & scheduled messages
   socket.emit('whatsapp_status', getWhatsAppStatus());
@@ -4053,11 +4498,65 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // Handle /hosts command
+    if (data.content.trim() === '/hosts' || data.content.trim().startsWith('/hosts ') || data.content.trim().startsWith('/host ')) {
+      const isDryRun = data.content.toLowerCase().includes('dry') || data.content.toLowerCase().includes('simulate');
+      const numMatch = data.content.match(/\b(\d+)\b/);
+      const maxPosts = numMatch ? parseInt(numMatch[1], 10) : 5;
+      const targetSession = targetSessionId || 'session_default';
+
+      sendLog(socket, 'orchestrator', 'system', `🚀 Starting Facebook Hosts Outreach task (Target: max ${maxPosts} offering posts, mode: ${isDryRun ? 'DRY-RUN' : 'LIVE'})...`, null, 'info', targetSession);
+      socket.emit('agent_status', { sessionId: targetSession, agentId: 'orchestrator', status: 'working', message: 'Scanning Facebook group for host offerings...' });
+
+      const skill = dynamicSkills.get('fb_hosts_outreach');
+      if (skill) {
+        try {
+          const result = await skill.execute({
+            maxPosts,
+            dryRun: isDryRun,
+            targetUrl: 'https://www.facebook.com/groups/325849768974770',
+            commentText: 'dm plese! :)'
+          }, (msg) => {
+            sendLog(socket, 'orchestrator', 'browser', msg, null, 'info', targetSession);
+          });
+
+          await recordMessageInSession(targetSession, {
+            role: 'assistant',
+            agent_id: 'orchestrator',
+            content: result.summary,
+            is_tool: false
+          });
+
+          socket.emit('agent_message', {
+            sessionId: targetSession,
+            agentId: 'orchestrator',
+            content: result.summary,
+            isTool: false
+          });
+          socket.emit('agent_status', { sessionId: targetSession, agentId: 'orchestrator', status: 'idle' });
+        } catch (e) {
+          const errorMsg = `❌ Facebook outreach error: ${e.message}`;
+          sendLog(socket, 'orchestrator', 'error', errorMsg, null, 'error', targetSession);
+          socket.emit('agent_message', {
+            sessionId: targetSession,
+            agentId: 'orchestrator',
+            content: errorMsg,
+            isTool: true
+          });
+          socket.emit('agent_status', { sessionId: targetSession, agentId: 'orchestrator', status: 'idle' });
+        }
+      } else {
+        socket.emit('agent_message', { sessionId: targetSession, agentId: 'orchestrator', content: `❌ fb_hosts_outreach skill not found.`, isTool: true });
+        socket.emit('agent_status', { sessionId: targetSession, agentId: 'orchestrator', status: 'idle' });
+      }
+      return;
+    }
+
     // Handle /help command
     if (data.content.trim() === '/help') {
       socket.emit('agent_message', {
         agentId: 'orchestrator',
-        content: `### 🛠️ Available Slash Commands\n\n- \`/compress\`: Compress session history & prune bloated context\n- \`/new\`: Analyze session and reset workspace\n- \`/stop\`: Stop current generation immediately\n- \`/learn\`: Extract insights and architectural proposals\n- \`/ego <prompt>\`: Execute autonomous web task in Ego Lite browser\n- \`/help\`: Show available commands`,
+        content: `### 🛠️ Available Slash Commands\n\n- \`/hosts [count]\`: Scan FB Digital Nomad housing group & comment on host offerings to promote https://host.frastab.com/\n- \`/compress\`: Compress session history & prune bloated context\n- \`/new\`: Analyze session and reset workspace\n- \`/stop\`: Stop current generation immediately\n- \`/learn\`: Extract insights and architectural proposals\n- \`/ego <prompt>\`: Execute autonomous web task in Ego Lite browser\n- \`/help\`: Show available commands`,
         isTool: true
       });
       return;
@@ -4080,7 +4579,8 @@ io.on('connection', (socket) => {
         }
       }
       sendLog(socket, 'orchestrator', 'system', `⏹ Generation stopped via /stop (${stopped} agent(s) halted)`, null, 'warning');
-      socket.emit('agent_message', { agentId: 'orchestrator', content: '_Generation stopped by user._', isTool: true });
+      const targetSession = data.sessionId || socket.currentSessionId || activeSessionId || 'session_default';
+      socket.emit('agent_message', { sessionId: targetSession, agentId: 'orchestrator', content: '_Generation stopped by user._', isTool: true });
       return;
     }
 
@@ -4348,6 +4848,82 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('set_ollama_cloud_key', (data) => {
+    const key = data.apiKey || data.key;
+    if (key) {
+      updateEnv('OLLAMA_API_KEY', key);
+      sendKeyStatus();
+      socket.emit('agent_message', { agentId: 'orchestrator', content: 'Primary Ollama Cloud API Key saved permanently to .env!' });
+    }
+  });
+
+  socket.on('set_ollama_cloud_key_2', (data) => {
+    const key = data.apiKey || data.key;
+    if (key) {
+      updateEnv('OLLAMA_API_KEY_2', key);
+      sendKeyStatus();
+      socket.emit('agent_message', { agentId: 'orchestrator', content: 'Backup Ollama Cloud API Key (OLLAMA_API_KEY_2) saved permanently to .env!' });
+    }
+  });
+
+  socket.on('set_digitalocean_key', (data) => {
+    const key = data.apiKey || data.key;
+    if (key) {
+      updateEnv('DIGITAL_OCEAN_API_KEY', key);
+      sendKeyStatus();
+      socket.emit('agent_message', { agentId: 'orchestrator', content: 'DigitalOcean API Key saved permanently to .env!' });
+    }
+  });
+
+  socket.on('set_default_llm_provider', (data) => {
+    const provider = data.provider;
+    if (provider) {
+      updateEnv('DEFAULT_LLM_PROVIDER', provider);
+      if (data.model) {
+        if (provider.startsWith('ollama_cloud')) {
+          updateEnv('OLLAMA_CLOUD_MODEL', data.model);
+        }
+      }
+      sendKeyStatus();
+      socket.emit('agent_message', { agentId: 'orchestrator', content: `Default LLM Provider updated to: ${provider}` });
+    }
+  });
+
+  // Model Router Socket Handlers
+  socket.on('get_router_config', () => {
+    socket.emit('router_config', getRouterConfig());
+  });
+
+  socket.on('update_router_config', async (data) => {
+    try {
+      const payload = data?.config || data;
+      const res = await updateRouterConfig(payload);
+      io.emit('router_config', getRouterConfig());
+      socket.emit('agent_message', { agentId: 'orchestrator', content: 'Smart Hybrid Router configuration updated!' });
+    } catch (e) {
+      socket.emit('agent_message', { agentId: 'orchestrator', content: `Failed to update router config: ${e.message}` });
+    }
+  });
+
+  socket.on('reset_router_config', async () => {
+    try {
+      await resetRouterConfig();
+      io.emit('router_config', getRouterConfig());
+      socket.emit('agent_message', { agentId: 'orchestrator', content: 'Smart Hybrid Router reset to system defaults.' });
+    } catch (e) {
+      socket.emit('agent_message', { agentId: 'orchestrator', content: `Failed to reset router config: ${e.message}` });
+    }
+  });
+
+  socket.on('get_ollama_cloud_models', async () => {
+    try {
+      const models = await fetchOllamaCloudModels();
+      socket.emit('ollama_cloud_models', { models });
+    } catch (e) {
+      socket.emit('ollama_cloud_models', { error: e.message, models: [] });
+    }
+  });
+
   socket.on('generate_agent_from_prompt', async (data) => {
     const { prompt } = data;
     sendLog(socket, 'orchestrator', 'api_request', `Generating agent config for: ${prompt}`);
@@ -4494,6 +5070,7 @@ function initTelegramBot(bot) {
       const photo = ctx.message.photo[ctx.message.photo.length - 1];
       const fileLink = await ctx.telegram.getFileLink(photo.file_id);
       const caption = ctx.message.caption || 'Look at this image';
+      const telegramSessionId = `telegram_${ctx.chat.id}`;
       
       // Download image as base64
       const response = await fetch(fileLink);
@@ -4501,7 +5078,11 @@ function initTelegramBot(bot) {
       const base64 = Buffer.from(buffer).toString('base64');
       const dataUrl = `data:image/jpeg;base64,${base64}`;
 
+      await getOrCreateSession(telegramSessionId, 'telegram', 'orchestrator', caption);
+      await recordMessageInSession(telegramSessionId, { role: 'user', content: caption, agentId: 'orchestrator', images: [dataUrl] });
+
       const mockSocket = {
+        isMockSocket: true,
         emit: async (event, data) => {
           if (event === 'agent_log') {
             handleAdaptiveChatAction(actionCtrl, data);
@@ -4512,11 +5093,10 @@ function initTelegramBot(bot) {
           if (event === 'agent_error') {
             await ctx.reply(`❌ Error: ${data.error}`).catch(() => {});
           }
-          io.emit(event, data);
         }
       };
       
-      await orchestrator.processMessage(caption, mockSocket, 'gemini', [dataUrl]);
+      await orchestrator.processMessage(caption, mockSocket, 'gemini', [dataUrl], telegramSessionId);
     } catch (err) {
       console.error('[Telegram photo error]:', err);
       await ctx.reply(`❌ Failed to process photo: ${err.message}`).catch(() => {});
@@ -4530,6 +5110,7 @@ function initTelegramBot(bot) {
     const actionCtrl = startChatAction(ctx, 'typing');
     const tempInOgg = path.join(process.cwd(), `tg_in_${Date.now()}.ogg`);
     const tempInWav = path.join(process.cwd(), `tg_in_${Date.now()}.wav`);
+    const telegramSessionId = `telegram_${ctx.chat.id}`;
     
     try {
       const voice = ctx.message.voice;
@@ -4542,6 +5123,9 @@ function initTelegramBot(bot) {
       await execPromise(`ffmpeg -y -i "${tempInOgg}" -ar 16000 -ac 1 "${tempInWav}"`);
       const wavBase64 = fs.readFileSync(tempInWav).toString('base64');
       
+      await getOrCreateSession(telegramSessionId, 'telegram', 'orchestrator', 'Voice Message');
+      await recordMessageInSession(telegramSessionId, { role: 'user', content: '🎤 [Voice message]', agentId: 'orchestrator' });
+
       const mockSocket = {
         isMockSocket: true,
         emit: async (event, data) => {
@@ -4593,12 +5177,11 @@ function initTelegramBot(bot) {
           if (event === 'agent_error') {
             await ctx.reply(`❌ Error: ${data.error}`).catch(() => {});
           }
-          io.emit(event, data);
         }
       };
       
       const audioInput = `data:audio/wav;base64,${wavBase64}`;
-      await orchestrator.processMessage('Please listen to this voice message and respond.', mockSocket, 'gemini', [audioInput]);
+      await orchestrator.processMessage('Please listen to this voice message and respond.', mockSocket, 'gemini', [audioInput], telegramSessionId);
     } catch (err) {
       console.error('[Telegram voice error]:', err);
       await ctx.reply(`❌ Failed to process voice: ${err.message}`).catch(() => {});
@@ -4613,8 +5196,12 @@ function initTelegramBot(bot) {
     lastTelegramChatId = ctx.chat.id;
     const text = ctx.message.text;
     const actionCtrl = startChatAction(ctx, 'typing');
+    const telegramSessionId = `telegram_${ctx.chat.id}`;
     
     try {
+      await getOrCreateSession(telegramSessionId, 'telegram', 'orchestrator', text);
+      await recordMessageInSession(telegramSessionId, { role: 'user', content: text, agentId: 'orchestrator' });
+
       // Create a mock socket-like object to bridge Telegram to existing agent logic
       const mockSocket = {
         isMockSocket: true,
@@ -4628,12 +5215,10 @@ function initTelegramBot(bot) {
           if (event === 'agent_error') {
             await ctx.reply(`❌ Error: ${data.error}`).catch(() => {});
           }
-          // Also send to web UI if connected
-          io.emit(event, data);
         }
       };
 
-      await orchestrator.processMessage(text, mockSocket, 'gemini');
+      await orchestrator.processMessage(text, mockSocket, process.env.DEFAULT_LLM_PROVIDER || 'ollama_cloud', [], telegramSessionId);
     } catch (err) {
       console.error('[Telegram text error]:', err);
       await ctx.reply(`❌ Error: ${err.message}`).catch(() => {});
@@ -4645,6 +5230,7 @@ function initTelegramBot(bot) {
   bot.on('location', async (ctx) => {
     lastTelegramChatId = ctx.chat.id;
     const actionCtrl = startChatAction(ctx, 'typing');
+    const telegramSessionId = `telegram_${ctx.chat.id}`;
     try {
       const { latitude, longitude } = ctx.message.location;
 
@@ -4672,7 +5258,11 @@ function initTelegramBot(bot) {
 
       console.log(`[Telegram location] ${locationMessage}`);
 
+      await getOrCreateSession(telegramSessionId, 'telegram', 'orchestrator', 'Location update');
+      await recordMessageInSession(telegramSessionId, { role: 'user', content: locationMessage, agentId: 'orchestrator' });
+
       const mockSocket = {
+        isMockSocket: true,
         emit: async (event, data) => {
           if (event === 'agent_log') {
             handleAdaptiveChatAction(actionCtrl, data);
@@ -4683,11 +5273,10 @@ function initTelegramBot(bot) {
           if (event === 'agent_error') {
             await ctx.reply(`❌ Error: ${data.error}`).catch(() => {});
           }
-          io.emit(event, data);
         }
       };
 
-      await orchestrator.processMessage(locationMessage, mockSocket, 'gemini');
+      await orchestrator.processMessage(locationMessage, mockSocket, process.env.DEFAULT_LLM_PROVIDER || 'ollama_cloud', [], telegramSessionId);
     } catch (err) {
       console.error('[Telegram location error]:', err);
       await ctx.reply(`❌ Error: ${err.message}`).catch(() => {});
@@ -4719,6 +5308,114 @@ function initTelegramBot(bot) {
 if (tgBot) {
   initTelegramBot(tgBot);
 }
+
+// LLM Provider Management APIs
+app.get('/api/llm/settings', (req, res) => {
+  res.json({
+    defaultProvider: process.env.DEFAULT_LLM_PROVIDER || 'ollama_cloud',
+    defaultOllamaCloudModel: process.env.OLLAMA_CLOUD_MODEL || 'nemotron-3-nano:30b',
+    keys: checkKeys()
+  });
+});
+
+app.post('/api/llm/settings', (req, res) => {
+  const { defaultProvider, defaultOllamaCloudModel, ollamaKey, ollamaKey2, digitaloceanKey, geminiKey, perplexityKey, tavilyKey, telegramToken, duffelKey } = req.body;
+  if (defaultProvider) updateEnv('DEFAULT_LLM_PROVIDER', defaultProvider);
+  if (defaultOllamaCloudModel) updateEnv('OLLAMA_CLOUD_MODEL', defaultOllamaCloudModel);
+  if (ollamaKey) updateEnv('OLLAMA_API_KEY', ollamaKey);
+  if (ollamaKey2) updateEnv('OLLAMA_API_KEY_2', ollamaKey2);
+  if (digitaloceanKey) updateEnv('DIGITAL_OCEAN_API_KEY', digitaloceanKey);
+  if (geminiKey) updateEnv('GOOGLE_API_KEY', geminiKey);
+  if (perplexityKey) updateEnv('PERPLEXITY_API_KEY', perplexityKey);
+  if (tavilyKey) updateEnv('TAVILY_API_KEY', tavilyKey);
+  if (telegramToken) updateEnv('TELEGRAM_BOT_TOKEN', telegramToken);
+  if (duffelKey) updateEnv('DUFFEL_API_KEY', duffelKey);
+
+  io.emit('api_key_status', checkKeys());
+  res.json({ success: true, settings: checkKeys() });
+});
+
+app.get('/api/llm/cloud-models', async (req, res) => {
+  try {
+    const models = await fetchOllamaCloudModels();
+    return res.json({ models });
+  } catch (err) {
+    return res.status(500).json({ error: err.message, models: [] });
+  }
+});
+
+app.get('/api/llm/router-config', (req, res) => {
+  res.json({ success: true, config: getRouterConfig() });
+});
+
+app.post('/api/llm/router-config', async (req, res) => {
+  try {
+    const payload = req.body?.config || req.body;
+    const result = await updateRouterConfig(payload);
+    io.emit('router_config', getRouterConfig());
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/llm/router-reset', async (req, res) => {
+  try {
+    const result = await resetRouterConfig();
+    io.emit('router_config', getRouterConfig());
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/llm/test-provider', async (req, res) => {
+  const { provider, model } = req.body;
+  const targetProvider = provider || process.env.DEFAULT_LLM_PROVIDER || 'auto';
+  const startTime = Date.now();
+  try {
+    if (targetProvider === 'auto' || targetProvider === 'auto_hybrid' || targetProvider.startsWith('auto:')) {
+      const sampleRoute = routeTask({
+        message: 'Explain how the hybrid router operates',
+        agentId: 'orchestrator'
+      });
+      const routedModel = sampleRoute.provider;
+      return res.json({
+        success: true,
+        latency: Date.now() - startTime,
+        model: `Auto -> ${getFriendlyModelName(routedModel)}`,
+        reply: `Smart Auto-Router active (Category: ${sampleRoute.category.toUpperCase()}) • ${sampleRoute.reason}`
+      });
+    } else if (targetProvider.startsWith('ollama_cloud')) {
+      const targetModel = model || (targetProvider.startsWith('ollama_cloud:') ? targetProvider.substring(13) : (process.env.OLLAMA_CLOUD_MODEL || 'nemotron-3-nano:30b'));
+      let usedBackupKey = false;
+      const testResult = await testOllamaCloudInference(targetModel, (info) => {
+        usedBackupKey = true;
+      });
+      return res.json({
+        success: true,
+        latency: testResult.latency,
+        model: targetModel,
+        reply: testResult.reply,
+        note: usedBackupKey ? 'Dispatched using backup key OLLAMA_API_KEY_2' : 'Dispatched using primary key OLLAMA_API_KEY'
+      });
+    } else if (targetProvider.startsWith('digitalocean') || targetProvider.startsWith('do')) {
+      const { createChatCompletion } = await import('./services/digitalocean.js');
+      const doModel = model || (targetProvider.startsWith('do:') ? targetProvider.substring(3) : undefined);
+      const text = await createChatCompletion([{ role: 'user', content: 'Say "Ready" in one word.' }], { model: doModel });
+      return res.json({ success: true, latency: Date.now() - startTime, model: doModel || 'default', reply: text.trim().slice(0, 100) });
+    } else if (targetProvider === 'gemini') {
+      const genAIModel = vertexAI.preview.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+      const result = await genAIModel.generateContent('Say "Ready" in one word.');
+      const text = result.response.candidates?.[0]?.content?.parts?.[0]?.text || 'Connected';
+      return res.json({ success: true, latency: Date.now() - startTime, model: 'gemini-2.5-flash-lite', reply: text.trim().slice(0, 100) });
+    } else {
+      return res.json({ success: true, latency: Date.now() - startTime, provider: targetProvider, reply: 'Provider OK' });
+    }
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message, latency: Date.now() - startTime });
+  }
+});
 
 app.get('/api/files', (req, res) => {
   const dirs = ['memory', 'tasks', 'knowledge', 'skills', 'agents'];
@@ -4932,6 +5629,7 @@ app.post('/api/approvals/:id/action', async (req, res) => {
     
     // Notify chat
     io.emit('agent_message', {
+      sessionId: approval.sessionId || 'session_default',
       agentId: 'orchestrator',
       content: `User marked approval #${id} (*${approval.title}*) as **${newStatus.toUpperCase()}**.${notes ? ' Note: ' + notes : ''}`,
       isTool: true
@@ -4982,7 +5680,7 @@ app.post('/api/approvals/:id/action', async (req, res) => {
 
         // Non-blocking: fire-and-forget so the HTTP response returns immediately
         setImmediate(() => {
-          targetAgent.processMessage(continuationMessage, mockSocket, 'gemini', [], resumeSessionId)
+          targetAgent.processMessage(continuationMessage, mockSocket, process.env.DEFAULT_LLM_PROVIDER || 'ollama_cloud', [], resumeSessionId)
             .catch(e => console.error(`[Approval Continuation Error] Approval #${id}:`, e));
         });
       } catch (continuationErr) {
@@ -5062,6 +5760,42 @@ app.post('/api/jobs/:id/toggle', async (req, res) => {
     res.json({ id: Number(id), status: newStatus });
   } catch (e) {
     res.status(500).json({ error: `Failed to toggle job: ${e.message}` });
+  }
+});
+
+app.put('/api/jobs/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const jobId = Number(id);
+    const { name: jobName, cron: cronExpr, task, agentId = 'orchestrator' } = req.body;
+
+    if (!cronExpr || !task) return res.status(400).json({ error: 'cron and task are required' });
+    if (!cron.validate(cronExpr)) return res.status(400).json({ error: 'Invalid cron expression' });
+
+    const db = await dbPromise;
+    const job = await db.get('SELECT * FROM scheduled_jobs WHERE id = ?', [jobId]);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+
+    const finalName = jobName || job.name || 'Unnamed Job';
+    await db.run(
+      'UPDATE scheduled_jobs SET name = ?, cron = ?, task = ?, agentId = ? WHERE id = ?',
+      [finalName, cronExpr, task, agentId, jobId]
+    );
+
+    if (scheduledCronTasks.has(jobId)) {
+      scheduledCronTasks.get(jobId).stop();
+      scheduledCronTasks.delete(jobId);
+    }
+
+    if (job.status === 'active') {
+      scheduleCronJob(jobId, cronExpr, task, finalName, agentId);
+    }
+
+    const overview = await getTrackerOverview();
+    io.emit('tracker_update', overview);
+    res.json({ id: jobId, name: finalName, cron: cronExpr, task, agentId, status: job.status });
+  } catch (e) {
+    res.status(500).json({ error: `Failed to update job: ${e.message}` });
   }
 });
 

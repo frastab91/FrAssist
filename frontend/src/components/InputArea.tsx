@@ -142,7 +142,8 @@ export function InputArea({
             >
               <span style={{ fontWeight: 600, color: '#3b82f6' }}>{s}</span>
               <span style={{ marginLeft: '1rem', color: '#64748b', fontSize: '0.8rem' }}>
-                {s === '/compress' ? 'Compress session history & prune bloated context' :
+                {s === '/hosts' ? 'Promote https://host.frastab.com/ - Scan FB group for host offerings & comment' :
+                 s === '/compress' ? 'Compress session history & prune bloated context' :
                  s === '/new' ? 'Analyze session and reset workspace' : 
                  s === '/stop' ? 'Stop current generation immediately' :
                  s === '/learn' ? 'Extract insights and architectural proposals' : 
@@ -158,17 +159,20 @@ export function InputArea({
           type="button"
           onClick={toggleRecording}
           style={{
-            background: 'none',
-            border: 'none',
-            padding: '0.5rem',
+            background: isRecording ? '#fee2e2' : 'none',
+            border: isRecording ? '1px solid #fca5a5' : 'none',
+            borderRadius: '8px',
+            padding: '0.45rem',
             cursor: 'pointer',
-            color: isRecording ? '#ef4444' : '#64748b',
+            color: isRecording ? '#dc2626' : '#64748b',
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'center',
             transition: 'all 0.2s ease',
-            marginRight: '0.5rem'
+            marginRight: '0.5rem',
+            boxShadow: isRecording ? '0 0 0 3px rgba(239, 68, 68, 0.2)' : 'none'
           }}
-          title={isRecording ? "Stop Recording" : "Start Voice Input"}
+          title={isRecording ? "Listening... (click to stop voice input)" : "Start Voice Input"}
         >
           <Mic size={20} style={{ animation: isRecording ? 'pulse 1.5s infinite' : 'none' }} />
         </button>
@@ -180,7 +184,7 @@ export function InputArea({
           onChange={(e) => {
             const val = e.target.value;
             setInput(val);
-            const allCmds = ['/compress', '/new', '/stop', '/learn', '/ego', '/help'];
+            const allCmds = ['/hosts', '/compress', '/new', '/stop', '/learn', '/ego', '/help'];
             if (val === '/') {
               setSuggestions(allCmds);
               setShowSuggestions(true);
@@ -205,6 +209,9 @@ export function InputArea({
             }
           }}
           placeholder={
+            isRecording ? "🎙️ Listening... (speak into your microphone, click mic to finish)" :
+            isConfiguringKey === 'ollama' ? "Enter Ollama Cloud API Key (saved permanently to backend/.env)..." :
+            isConfiguringKey === 'digitalocean' ? "Enter DigitalOcean API Key..." :
             isConfiguringKey === 'gemini' ? "Enter Gemini API Key..." :
             isConfiguringKey === 'perplexity' ? "Enter Perplexity API Key..." :
             isConfiguringKey === 'tavily' ? "Enter Tavily API Key..." :

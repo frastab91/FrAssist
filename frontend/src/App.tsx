@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { Bot } from 'lucide-react';
 import './index.css';
@@ -16,6 +16,7 @@ import { ImageModal } from './components/ImageModal';
 import { UsageDashboard } from './components/UsageDashboard';
 import { WhatsAppPage } from './components/WhatsAppPage';
 import { MissionControlModal } from './components/MissionControlModal';
+import { SettingsModal } from './components/SettingsModal';
 
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([
@@ -30,45 +31,139 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [isTtsEnabled, setIsTtsEnabled] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const isRecordingRef = useRef(false);
+  const userStoppedRef = useRef(false);
+  const baseInputRef = useRef('');
 
+  // Keep isRecordingRef in sync with state
   useEffect(() => {
-    if (typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = true;
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
 
-      recognitionRef.current.onresult = (event: any) => {
-        const transcript = Array.from(event.results)
-          .map((result: any) => result[0])
-          .map((result: any) => result.transcript)
-          .join('');
-        setInput(transcript);
+  const initRecognition = useCallback(() => {
+    if (typeof window === 'undefined') return null;
+    const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionClass) {
+      return null;
+    }
+
+    try {
+      const recognition = new SpeechRecognitionClass();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = navigator.language || 'it-IT';
+
+      recognition.onstart = () => {
+        setIsRecording(true);
+        isRecordingRef.current = true;
       };
 
-      recognitionRef.current.onend = () => {
-        setIsRecording(false);
+      recognition.onresult = (event: any) => {
+        let finalTranscript = '';
+        let interimTranscript = '';
+
+        for (let i = 0; i < event.results.length; ++i) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+
+        const newSpeech = (finalTranscript + interimTranscript).trim();
+        const base = baseInputRef.current;
+        if (newSpeech) {
+          setInput(base ? `${base} ${newSpeech}` : newSpeech);
+        }
       };
 
-      recognitionRef.current.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
-        setIsRecording(false);
+      recognition.onerror = (event: any) => {
+        console.warn('Speech recognition error event:', event.error);
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          userStoppedRef.current = true;
+          setIsRecording(false);
+          isRecordingRef.current = false;
+          alert('Microphone access was denied. Please allow microphone permissions in your browser address bar.');
+        } else if (event.error === 'audio-capture') {
+          userStoppedRef.current = true;
+          setIsRecording(false);
+          isRecordingRef.current = false;
+          alert('No microphone was detected on your system.');
+        }
+        // 'no-speech' and other minor network hiccups do not force-terminate; auto-keepalive will resume
       };
+
+      recognition.onend = () => {
+        // If user didn't explicitly click stop, auto-restart to keep continuous recording active
+        if (isRecordingRef.current && !userStoppedRef.current) {
+          try {
+            recognition.start();
+          } catch {
+            setIsRecording(false);
+            isRecordingRef.current = false;
+          }
+        } else {
+          setIsRecording(false);
+          isRecordingRef.current = false;
+        }
+      };
+
+      return recognition;
+    } catch (e) {
+      console.error('Failed to initialize SpeechRecognition:', e);
+      return null;
     }
   }, []);
 
   const toggleRecording = () => {
+    const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionClass) {
+      alert('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.');
+      return;
+    }
+
     if (isRecording) {
-      recognitionRef.current?.stop();
+      userStoppedRef.current = true;
+      setIsRecording(false);
+      isRecordingRef.current = false;
+      try {
+        recognitionRef.current?.stop();
+      } catch (e) {
+        console.error('Error stopping speech recognition:', e);
+      }
     } else {
-      recognitionRef.current?.start();
-      setIsRecording(true);
+      userStoppedRef.current = false;
+      baseInputRef.current = input.trim();
+      
+      try {
+        if (recognitionRef.current) {
+          try { recognitionRef.current.abort(); } catch {}
+        }
+        const instance = initRecognition();
+        if (instance) {
+          recognitionRef.current = instance;
+          instance.start();
+          setIsRecording(true);
+          isRecordingRef.current = true;
+        }
+      } catch (err: any) {
+        console.error('Error starting speech recognition:', err);
+        setIsRecording(false);
+        isRecordingRef.current = false;
+      }
     }
   };
 
   const speak = (text: string) => {
-    if (!isTtsEnabled) return;
+    if (!isTtsEnabled || !('speechSynthesis' in window)) return;
     const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US';
+    const voices = window.speechSynthesis.getVoices();
+    const usVoice = voices.find(v => v.lang === 'en-US' || v.lang === 'en_US') ||
+                    voices.find(v => v.lang.startsWith('en-US')) ||
+                    voices.find(v => v.lang.startsWith('en'));
+    if (usVoice) utterance.voice = usVoice;
     window.speechSynthesis.speak(utterance);
   };
 
@@ -82,11 +177,12 @@ export default function App() {
   const [currentStatus, setCurrentStatus] = useState('');
   const [ollamaStatus, setOllamaStatus] = useState<any>(null);
   const [keyStatus, setKeyStatus] = useState<KeyStatus>({ hasGemini: false, hasTavily: false, hasTelegram: false, hasPerplexity: false });
-  const [isConfiguringKey, setIsConfiguringKey] = useState<'gemini' | 'tavily' | 'telegram' | 'perplexity' | null>(null);
-  const [aiProvider, setAiProvider] = useState<'gemini' | 'ollama' | 'perplexity' | 'ollama_qwen' | 'vertex_research' | 'digitalocean'>('digitalocean');
+  const [isConfiguringKey, setIsConfiguringKey] = useState<'gemini' | 'tavily' | 'telegram' | 'perplexity' | 'ollama' | 'digitalocean' | 'duffel' | null>(null);
+  const [aiProvider, setAiProvider] = useState<string>(() => localStorage.getItem('frassist_ai_provider') || 'ollama_cloud:nemotron-3-nano:30b');
   const [logs, setLogs] = useState<LogEvent[]>([]);
   const [showLogs, setShowLogs] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   
   const [activeAgents, setActiveAgents] = useState<Agent[]>([
     { id: 'orchestrator', name: 'Orchestrator', role: 'Main Controller', status: 'idle', icon: <Bot size={16} /> },
@@ -153,6 +249,28 @@ export default function App() {
     activeSessionIdRef.current = activeSessionId;
   }, [activeSessionId]);
 
+  const handleChannelChange = (channel: 'web' | 'whatsapp' | 'telegram' | 'agent') => {
+    setActiveChannel(channel);
+    if (channel === 'telegram') {
+      const tgSession = sessions.find(s => s.channel === 'telegram' || s.id.startsWith('telegram_'));
+      if (tgSession) {
+        setActiveSessionId(tgSession.id);
+        socket?.emit('load_session', { sessionId: tgSession.id });
+      } else {
+        const newTgId = `telegram_main`;
+        setActiveSessionId(newTgId);
+        socket?.emit('load_session', { sessionId: newTgId });
+      }
+    } else if (channel === 'web') {
+      if (activeSessionId.startsWith('telegram_')) {
+        const webSession = sessions.find(s => s.channel === 'web' && !s.id.startsWith('telegram_'));
+        const targetId = webSession ? webSession.id : 'session_default';
+        setActiveSessionId(targetId);
+        socket?.emit('load_session', { sessionId: targetId });
+      }
+    }
+  };
+
   useEffect(() => {
     const fetchNetworkInfo = async () => {
       try {
@@ -171,6 +289,7 @@ export default function App() {
     };
     fetchNetworkInfo();
   }, []);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showFiles, setShowFiles] = useState(false);
   const [files, setFiles] = useState<Record<string, string[]>>({});
   const [selectedFile, setSelectedFile] = useState<{ dir: string, file: string, content: string } | null>(null);
@@ -219,6 +338,11 @@ export default function App() {
     const newSocket = io();
     setSocket(newSocket);
 
+    newSocket.on('connect', () => {
+      newSocket.emit('get_active_agents');
+      newSocket.emit('get_sessions');
+    });
+
     newSocket.on('chat_history', (data: { agentId: string; history: any[] }) => {
       if (data.agentId === 'orchestrator') {
         const mappedMessages: Message[] = data.history.map((h, idx) => {
@@ -255,7 +379,8 @@ export default function App() {
       setSessionWorkingMap(map);
     });
 
-    newSocket.on('agent_message', (data: { sessionId?: string; agentId: string; content: string; image?: string; images?: string[]; usage?: any; isTool?: boolean }) => {
+    newSocket.on('agent_message', (data: { sessionId?: string; agentId: string; content: string; image?: string; images?: string[]; usage?: any; isTool?: boolean; isError?: boolean; steps?: any[] }) => {
+      if (data.sessionId && data.sessionId !== activeSessionIdRef.current) return;
       const targetSession = data.sessionId || activeSessionIdRef.current;
       if (targetSession === activeSessionIdRef.current) {
         setMessages((prev) => {
@@ -280,17 +405,20 @@ export default function App() {
               content: data.content,
               images: data.images ? data.images : (data.image ? [data.image] : undefined),
               usage: data.usage,
-              isTool: data.isTool
+              isTool: data.isTool,
+              isError: data.isError,
+              steps: data.steps
             },
           ];
         });
-        if (data.content && !data.isTool) {
+        if (data.content && !data.isTool && !data.isError) {
           speak(data.content);
         }
       }
     });
 
     newSocket.on('agent_status', (data: { sessionId?: string; agentId: string; status: 'idle' | 'working', message?: string; toolName?: string }) => {
+      if (data.sessionId && data.sessionId !== activeSessionIdRef.current) return;
       const targetSession = data.sessionId || activeSessionIdRef.current;
       if (targetSession) {
         setSessionWorkingMap(prev => ({ ...prev, [targetSession]: data.status === 'working' }));
@@ -438,6 +566,7 @@ export default function App() {
     });
 
     newSocket.on('agent_health', (data: { sessionId?: string; agentId: string; status: string; toolName?: string; elapsedSeconds: number; health: string }) => {
+      if (data.sessionId && data.sessionId !== activeSessionIdRef.current) return;
       const targetSession = data.sessionId || activeSessionIdRef.current;
       if (targetSession === activeSessionIdRef.current && data.elapsedSeconds >= 10) {
         setCurrentStatus(`⚡ ${data.toolName || 'Processing'} (${data.elapsedSeconds}s — running smoothly)`);
@@ -806,6 +935,12 @@ export default function App() {
       if (isConfiguringKey === 'gemini') {
         socket.emit('set_gemini_key', { apiKey: input });
         setIsConfiguringKey(null);
+      } else if (isConfiguringKey === 'ollama') {
+        socket.emit('set_ollama_cloud_key', { apiKey: input });
+        setIsConfiguringKey(null);
+      } else if (isConfiguringKey === 'digitalocean') {
+        socket.emit('set_digitalocean_key', { apiKey: input });
+        setIsConfiguringKey(null);
       } else if (isConfiguringKey === 'tavily') {
         socket.emit('set_tavily_key', { apiKey: input });
         setIsConfiguringKey(null);
@@ -814,6 +949,9 @@ export default function App() {
         setIsConfiguringKey(null);
       } else if (isConfiguringKey === 'telegram') {
         socket.emit('set_telegram_token', { token: input });
+        setIsConfiguringKey(null);
+      } else if (isConfiguringKey === 'duffel') {
+        socket.emit('set_duffel_key', { apiKey: input });
         setIsConfiguringKey(null);
       } else {
         socket.emit('user_message', { 
@@ -963,37 +1101,57 @@ export default function App() {
 
   return (
     <div className={`app-container ${isDragging ? 'dragging' : ''}`}>
-      <Sidebar
-        setShowCreateModal={setShowCreateModal}
-        activeAgents={activeAgents}
-        selectedAgentId={selectedAgentId}
-        setSelectedAgentId={setSelectedAgentId}
-        setShowInspector={setShowInspector}
-        socket={socket}
-        ollamaStatus={ollamaStatus}
-        systemStats={systemStats}
-        heartbeat={heartbeat}
-        onUsageClick={() => {
-          fetchDetailedStats();
-          setShowUsageDashboard(true);
-        }}
-        activeChannel={activeChannel}
-        setActiveChannel={setActiveChannel}
-        activeSessionId={activeSessionId}
-        setActiveSessionId={setActiveSessionId}
-        sessions={sessions}
-        sessionWorkingMap={sessionWorkingMap}
-        onNewChat={handleNewChat}
-        onDeleteSession={handleDeleteSession}
-        onOpenWhatsApp={() => {
-          setActiveChannel('whatsapp');
-          setSelectedAgentId(null);
-        }}
-        whatsappConnected={whatsappStatus.connected}
-      />
+      {isSidebarOpen && (
+        <Sidebar
+          setShowCreateModal={setShowCreateModal}
+          activeAgents={activeAgents}
+          selectedAgentId={selectedAgentId}
+          setSelectedAgentId={setSelectedAgentId}
+          setShowInspector={setShowInspector}
+          socket={socket}
+          ollamaStatus={ollamaStatus}
+          systemStats={systemStats}
+          heartbeat={heartbeat}
+          onUsageClick={() => {
+            fetchDetailedStats();
+            setShowUsageDashboard(true);
+          }}
+          activeChannel={activeChannel}
+          setActiveChannel={handleChannelChange}
+          activeSessionId={activeSessionId}
+          setActiveSessionId={setActiveSessionId}
+          sessions={sessions}
+          sessionWorkingMap={sessionWorkingMap}
+          onNewChat={handleNewChat}
+          onDeleteSession={handleDeleteSession}
+          onOpenWhatsApp={() => {
+            setActiveChannel('whatsapp');
+            setSelectedAgentId(null);
+          }}
+          whatsappConnected={whatsappStatus.connected}
+          onOpenSkills={() => {
+            setInspectorTab('skills');
+            setShowInspector(true);
+            const agentToInspect = selectedAgentId || 'orchestrator';
+            setSelectedAgentId(agentToInspect);
+            socket?.emit('request_agent_details', { agentId: agentToInspect });
+          }}
+          onOpenArtifacts={() => {
+            fetchFiles();
+            setShowFiles(true);
+          }}
+          onOpenMessaging={() => {
+            setActiveChannel(activeChannel === 'whatsapp' ? 'web' : 'whatsapp');
+            setSelectedAgentId(null);
+          }}
+          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+        />
+      )}
       
       <main className="main-content" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
         <Header
+          toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          isSidebarOpen={isSidebarOpen}
           aiProvider={aiProvider}
           setAiProvider={setAiProvider}
           showSettingsMenu={showSettingsMenu}
@@ -1026,6 +1184,7 @@ export default function App() {
           pendingApprovalsCount={(trackerData.pendingApprovals || []).filter(a => a.status === 'pending').length}
           currentStatus={sessionStatusMap[activeSessionId] || currentStatus}
           handleStop={() => handleStop(activeSessionId)}
+          onOpenSettings={() => setShowSettingsModal(true)}
         />
 
         {activeChannel === 'whatsapp' ? (
@@ -1090,6 +1249,7 @@ export default function App() {
           logs={logs}
           setLogs={setLogs}
           logsEndRef={logsEndRef}
+          onClose={() => setShowLogs(false)}
         />
       )}
 
@@ -1100,6 +1260,7 @@ export default function App() {
           readFile={readFile}
           selectedFile={selectedFile}
           setSelectedFile={setSelectedFile}
+          onClose={() => setShowFiles(false)}
         />
       )}
 
@@ -1150,6 +1311,16 @@ export default function App() {
           setShowInspector(true);
           socket?.emit('request_agent_details', { agentId });
         }}
+      />
+
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        aiProvider={aiProvider}
+        setAiProvider={setAiProvider}
+        keyStatus={keyStatus}
+        socket={socket}
+        ollamaStatus={ollamaStatus}
       />
     </div>
   );

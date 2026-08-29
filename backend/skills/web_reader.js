@@ -1,6 +1,8 @@
+import { EgoAdapter } from './utils/ego_adapter.js';
+
 export const declaration = {
   name: 'web_reader',
-  description: 'Read the full text and content of any website, article, or documentation directly into clean Markdown. Highly effective for news (e.g. Financial Times, Bloomberg, Medium, Substack) and research, completely bypassing Cloudflare Turnstile and bot detection.',
+  description: 'Read the full text and content of any website, article, or documentation directly into clean Markdown. Highly effective for news (e.g. Financial Times, Bloomberg, Medium, Substack) and research, completely bypassing Cloudflare Turnstile, bot detection, and paywall hurdles.',
   parameters: {
     type: 'OBJECT',
     properties: {
@@ -10,6 +12,41 @@ export const declaration = {
     required: ['url']
   }
 };
+
+function isBlockedOrError(text) {
+  if (!text || text.trim().length < 100) return true;
+  const lower = text.toLowerCase();
+  
+  if (lower.startsWith('title: application error') || lower.includes('markdown content:\napplication error')) {
+    return true;
+  }
+  
+  const blockPhrases = [
+    'application error',
+    'subscribe to read',
+    'become an ft subscriber',
+    'ft.com/products',
+    'paywall',
+    'access denied',
+    '403 forbidden',
+    '401 unauthorized',
+    'please enable js and disable any ad blocker',
+    'verify you are human',
+    'attention required! | cloudflare',
+    'challenges.cloudflare.com',
+    'one more step\n\nplease complete the security check',
+    'page you are trying to access does not exist',
+    'the page you are trying to access does not exist',
+    'page not found',
+    'error code\n:\n404'
+  ];
+  
+  const isPaywallSnippet = blockPhrases.some(phrase => lower.includes(phrase));
+  if (isPaywallSnippet && (text.length < 2500 || lower.includes('become an ft subscriber') || lower.includes('title: subscribe to read') || lower.includes('title: application error') || lower.includes('page you are trying to access does not exist'))) {
+    return true;
+  }
+  return false;
+}
 
 export async function execute(args) {
   let { url, maxLength = 20000 } = args;
@@ -23,9 +60,9 @@ export async function execute(args) {
   try {
     const jinaUrl = `https://r.jina.ai/${url}`;
     const headers = {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'X-Return-Format': 'markdown',
-      'X-Timeout': '25'
+      'X-Timeout': '20'
     };
 
     if (process.env.JINA_API_KEY) {
@@ -35,12 +72,12 @@ export async function execute(args) {
     const res = await fetch(jinaUrl, {
       method: 'GET',
       headers,
-      signal: AbortSignal.timeout(30000)
+      signal: AbortSignal.timeout(20000)
     });
 
     if (res.ok) {
       let content = await res.text();
-      if (content && content.trim().length > 100) {
+      if (!isBlockedOrError(content)) {
         if (content.length > maxLength) {
           content = content.slice(0, maxLength) + `\n\n[Content truncated to ${maxLength} characters...]`;
         }
@@ -52,7 +89,7 @@ export async function execute(args) {
       }
     }
   } catch (err) {
-    console.warn('[web_reader] Jina Reader error, attempting fallback:', err.message);
+    console.warn('[web_reader] Jina Reader error or blocked, attempting fallback:', err.message);
   }
 
   // 2. Try Firecrawl API if configured
@@ -68,13 +105,13 @@ export async function execute(args) {
           url,
           formats: ['markdown']
         }),
-        signal: AbortSignal.timeout(30000)
+        signal: AbortSignal.timeout(25000)
       });
 
       if (res.ok) {
         const data = await res.json();
         let md = data.data?.markdown || data.markdown;
-        if (md) {
+        if (md && !isBlockedOrError(md)) {
           if (md.length > maxLength) {
             md = md.slice(0, maxLength) + `\n\n[Content truncated...]`;
           }
@@ -90,32 +127,113 @@ export async function execute(args) {
     }
   }
 
-  // 3. Fallback: Direct fetch with basic HTML extraction
+  // 3. Try Ego Browser (shares user profile/cookies and handles live rendering)
+  if (EgoAdapter.isAvailable()) {
+    try {
+      const urlJson = JSON.stringify(url);
+      const script = `
+        const task = await useOrCreateTaskSpace('Web Reader');
+        await openOrReuseTab(${urlJson}, { wait: true, timeout: 15 });
+        await wait(1.5);
+        ${EgoAdapter.getObstacleClearanceScript()}
+        const snap = await snapshotText();
+        await completeTaskSpace(task.name, { keep: false });
+        cliLog(snap);
+      `;
+      const snapText = await EgoAdapter.runScript(script);
+      if (snapText && !isBlockedOrError(snapText) && snapText.trim().length > 300) {
+        let content = snapText;
+        if (content.length > maxLength) {
+          content = content.slice(0, maxLength) + `\n\n[Content truncated...]`;
+        }
+        return {
+          source: 'ego_browser',
+          url,
+          content
+        };
+      }
+    } catch (egoErr) {
+      console.warn('[web_reader] Ego Browser extraction error:', egoErr.message);
+    }
+  }
+
+  // 4. Try Wayback Machine Archive
+  try {
+    const wbRes = await fetch(`https://archive.org/wayback/available?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(10000) });
+    if (wbRes.ok) {
+      const wbData = await wbRes.json();
+      const snapshotUrl = wbData.archived_snapshots?.closest?.url;
+      if (snapshotUrl) {
+        const snapRes = await fetch(`https://r.jina.ai/${snapshotUrl}`, { signal: AbortSignal.timeout(15000) });
+        if (snapRes.ok) {
+          const snapContent = await snapRes.text();
+          if (!isBlockedOrError(snapContent)) {
+            return {
+              source: 'wayback_archive',
+              url,
+              content: snapContent.slice(0, maxLength)
+            };
+          }
+        }
+      }
+    }
+  } catch (wbErr) {
+    console.warn('[web_reader] Wayback archive error:', wbErr.message);
+  }
+
+  // 5. Try Smart News Search / Syndication Synthesis (Tavily) for hard paywalls
+  if (process.env.TAVILY_API_KEY) {
+    try {
+      const { tavily } = await import('@tavily/core');
+      const tvly = tavily({ apiKey: process.env.TAVILY_API_KEY });
+      
+      // Extract keywords from URL path / slug
+      const urlSlug = url.split('/').pop().replace(/[_\W]+/g, ' ').trim();
+      const domain = new URL(url).hostname.replace(/^www\./, '');
+      const searchQuery = `"${url}" OR ("${urlSlug}" ${domain} full article reporting)`;
+      
+      const searchRes = await tvly.search(searchQuery, { searchDepth: 'advanced', maxResults: 5 });
+      if (searchRes.results && searchRes.results.length > 0) {
+        const formattedResults = searchRes.results.map((r, idx) => `### [${idx + 1}] ${r.title}\nSource: ${r.url}\n\n${r.content}`).join('\n\n---\n\n');
+        return {
+          source: 'news_search_synthesis',
+          url,
+          content: `# Article & Reporting Context for: ${url}\n\n${formattedResults}`.slice(0, maxLength)
+        };
+      }
+    } catch (tavilyErr) {
+      console.warn('[web_reader] Tavily fallback error:', tavilyErr.message);
+    }
+  }
+
+  // 6. Final Fallback: Direct fetch with basic HTML extraction
   try {
     const res = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
       },
       signal: AbortSignal.timeout(15000)
     });
     if (res.ok) {
       const html = await res.text();
-      // Basic text cleanup
       const clean = html
         .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
         .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
         .replace(/<[^>]+>/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
-      return {
-        source: 'direct_fetch',
-        url,
-        content: clean.slice(0, maxLength)
-      };
+      if (clean && !isBlockedOrError(clean)) {
+        return {
+          source: 'direct_fetch',
+          url,
+          content: clean.slice(0, maxLength)
+        };
+      }
     }
   } catch (err) {
     return { error: `Failed to read web page: ${err.message}` };
   }
 
-  return { error: 'Unable to extract readable content from URL.' };
+  return { error: 'Unable to extract readable content from URL after trying Jina, Ego Browser, Archive, and News Search.' };
 }

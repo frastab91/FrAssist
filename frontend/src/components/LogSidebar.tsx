@@ -1,19 +1,62 @@
 import type { LogEvent } from '../types';
+import { X } from 'lucide-react';
 
 type LogSidebarProps = {
   logs: LogEvent[];
   setLogs: (logs: LogEvent[]) => void;
   logsEndRef: React.RefObject<HTMLDivElement | null>;
+  onClose?: () => void;
 };
 
-export function LogSidebar({ logs, setLogs, logsEndRef }: LogSidebarProps) {
+export function LogSidebar({ logs, setLogs, logsEndRef, onClose }: LogSidebarProps) {
   return (
     <aside className="log-sidebar" style={{ width: '360px', borderLeft: '1px solid #1e293b', background: '#0f172a', display: 'flex', flexDirection: 'column' }}>
       <div className="log-header" style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0f172a' }}>
-        <h2 style={{ fontSize: '0.85rem', fontWeight: 700, color: '#e2e8f0', letterSpacing: '0.05em', textTransform: 'uppercase', margin: 0 }}>⬤ Live Log Stream</h2>
+        <h2 style={{ fontSize: '0.85rem', fontWeight: 700, color: '#e2e8f0', letterSpacing: '0.05em', textTransform: 'uppercase', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <span style={{ color: '#38bdf8', fontSize: '0.75rem' }}>⬤</span> Live Log Stream
+        </h2>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <span style={{ fontSize: '0.65rem', color: '#34d399' }}>{logs.length} events</span>
-          <button onClick={() => setLogs([])} style={{ fontSize: '0.7rem', cursor: 'pointer', background: 'none', border: '1px solid #334155', color: '#94a3b8', borderRadius: '4px', padding: '2px 8px' }}>Clear</button>
+          <span style={{ fontSize: '0.65rem', color: '#34d399', fontWeight: 600 }}>{logs.length} events</span>
+          <button 
+            onClick={() => setLogs([])} 
+            title="Clear logs"
+            style={{ fontSize: '0.7rem', cursor: 'pointer', background: 'none', border: '1px solid #334155', color: '#94a3b8', borderRadius: '4px', padding: '2px 8px', transition: 'all 0.15s ease' }}
+          >
+            Clear
+          </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              title="Close log stream"
+              aria-label="Close log stream"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '22px',
+                height: '22px',
+                padding: 0,
+                border: '1px solid transparent',
+                borderRadius: '4px',
+                background: 'transparent',
+                color: '#94a3b8',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = '#1e293b';
+                e.currentTarget.style.color = '#f87171';
+                e.currentTarget.style.borderColor = '#334155';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = '#94a3b8';
+                e.currentTarget.style.borderColor = 'transparent';
+              }}
+            >
+              <X size={15} />
+            </button>
+          )}
         </div>
       </div>
       <div className="log-list" style={{ flex: 1, overflowY: 'auto', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '3px', background: '#0f172a' }}>

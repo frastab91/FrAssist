@@ -7,6 +7,7 @@ type KnowledgeExplorerProps = {
   readFile: (dir: string, file: string) => void;
   selectedFile: { dir: string, file: string, content: string } | null;
   setSelectedFile: (file: { dir: string, file: string, content: string } | null) => void;
+  onClose?: () => void;
 };
 
 export function KnowledgeExplorer({
@@ -15,14 +16,66 @@ export function KnowledgeExplorer({
   readFile,
   selectedFile,
   setSelectedFile,
+  onClose,
 }: KnowledgeExplorerProps) {
   return (
     <aside className="log-sidebar" style={{ width: '400px', borderLeft: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
-      <div className="log-header" style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white' }}>
-        <h2 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+      <div className="log-header" style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white' }}>
+        <h2 style={{ fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0, color: '#0f172a' }}>
           <Brain size={18} color="#3b82f6" /> Knowledge Base
         </h2>
-        <button onClick={fetchFiles} style={{ fontSize: '0.8rem', cursor: 'pointer', background: 'none', border: 'none', color: '#3b82f6' }}>Refresh</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <button 
+            onClick={fetchFiles} 
+            title="Refresh files"
+            style={{ 
+              fontSize: '0.75rem', 
+              cursor: 'pointer', 
+              background: '#f1f5f9', 
+              border: '1px solid #e2e8f0', 
+              color: '#3b82f6',
+              borderRadius: '4px',
+              padding: '3px 8px',
+              fontWeight: 500,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+          >
+            Refresh
+          </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              title="Close Knowledge Base"
+              aria-label="Close Knowledge Base"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '24px',
+                height: '24px',
+                padding: 0,
+                border: '1px solid transparent',
+                borderRadius: '4px',
+                background: 'transparent',
+                color: '#64748b',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = '#fee2e2';
+                e.currentTarget.style.color = '#ef4444';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = '#64748b';
+              }}
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
       </div>
       <div className="file-explorer-content" style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
         {Object.entries(files).map(([dir, fileList]) => (

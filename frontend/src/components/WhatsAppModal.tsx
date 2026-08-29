@@ -235,8 +235,7 @@ export function WhatsAppModal({ show, onClose, status, socket }: WhatsAppModalPr
 
     if (socket) {
       socket.emit('user_message', {
-        content: `/tool send_whatsapp_message {"recipient":"${testNumber.trim()}","message":"${testMessage.trim()}","security_code":"${securityCode.trim()}"}`,
-        provider: 'gemini'
+        content: `/tool send_whatsapp_message {"recipient":"${testNumber.trim()}","message":"${testMessage.trim()}","security_code":"${securityCode.trim()}"}`
       });
       setTimeout(() => {
         setIsSending(false);

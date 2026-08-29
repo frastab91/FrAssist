@@ -1,4 +1,21 @@
-import { Plus, Bot, Brain, Trash2, Settings, MessageSquare, Send, Globe, Clock, Loader2 } from 'lucide-react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { 
+  Bot, 
+  Layers, 
+  MessageSquare, 
+  FileText, 
+  Search, 
+  Equal, 
+  MoreHorizontal, 
+  Trash2, 
+  Pin, 
+  Loader2, 
+  X,
+  Settings,
+  Brain,
+  ChevronDown,
+  Plus
+} from 'lucide-react';
 import type { Agent, SystemStats, ChatSession } from '../types';
 import { Socket } from 'socket.io-client';
 
@@ -13,7 +30,6 @@ type SidebarProps = {
   systemStats: SystemStats;
   heartbeat: any;
   onUsageClick: () => void;
-  // Session & Channel props
   activeChannel: 'web' | 'whatsapp' | 'telegram' | 'agent';
   setActiveChannel: (channel: 'web' | 'whatsapp' | 'telegram' | 'agent') => void;
   activeSessionId: string;
@@ -24,20 +40,58 @@ type SidebarProps = {
   onDeleteSession: (sessionId: string) => void;
   onOpenWhatsApp: () => void;
   whatsappConnected: boolean;
+  onOpenSkills?: () => void;
+  onOpenArtifacts?: () => void;
+  onOpenMessaging?: () => void;
+  onToggleSidebar?: () => void;
 };
+
+function GridDotIcon({ size = 12, color = '#2563eb' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" fill={color} style={{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }}>
+      <rect x="0" y="0" width="2.5" height="2.5" rx="0.5" />
+      <rect x="4.75" y="0" width="2.5" height="2.5" rx="0.5" />
+      <rect x="9.5" y="0" width="2.5" height="2.5" rx="0.5" />
+      <rect x="0" y="4.75" width="2.5" height="2.5" rx="0.5" />
+      <rect x="4.75" y="4.75" width="2.5" height="2.5" rx="0.5" />
+      <rect x="9.5" y="4.75" width="2.5" height="2.5" rx="0.5" />
+      <rect x="0" y="9.5" width="2.5" height="2.5" rx="0.5" />
+      <rect x="4.75" y="9.5" width="2.5" height="2.5" rx="0.5" />
+      <rect x="9.5" y="9.5" width="2.5" height="2.5" rx="0.5" />
+    </svg>
+  );
+}
+
+function SidebarToggleIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="2" width="12" height="12" rx="2.5" />
+      <line x1="6.5" y1="2" x2="6.5" y2="14" />
+    </svg>
+  );
+}
+
+function PinHelperIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ transform: 'rotate(-45deg)', flexShrink: 0 }}>
+      <line x1="12" y1="17" x2="12" y2="22" />
+      <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.89A2 2 0 0 1 15 10.77V6a3 3 0 0 0-6 0v4.77a2 2 0 0 1-1.11 1.79l-1.78.89A2 2 0 0 0 5 15.24Z" />
+    </svg>
+  );
+}
 
 function formatRelativeTime(dateStr: string) {
   try {
     const d = new Date(dateStr);
     const now = new Date();
     const diffSec = Math.floor((now.getTime() - d.getTime()) / 1000);
-    if (isNaN(diffSec) || diffSec < 60) return 'Just now';
-    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-    if (diffSec < 172800) return 'Yesterday';
-    return `${Math.floor(diffSec / 86400)}d ago`;
+    if (isNaN(diffSec) || diffSec < 90) return 'now';
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m`;
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h`;
+    if (diffSec < 172800) return '1d';
+    return `${Math.floor(diffSec / 86400)}d`;
   } catch (e) {
-    return '';
+    return 'now';
   }
 }
 
@@ -62,369 +116,612 @@ export function Sidebar({
   onDeleteSession,
   onOpenWhatsApp,
   whatsappConnected,
+  onOpenSkills,
+  onOpenArtifacts,
+  onOpenMessaging,
+  onToggleSidebar,
 }: SidebarProps) {
-  const handleDeleteAgent = (e: React.MouseEvent, agentId: string) => {
-    e.stopPropagation();
-    if (window.confirm(`Are you sure you want to delete ${agentId}?`)) {
-      socket?.emit('delete_agent', { agentId });
-      if (selectedAgentId === agentId) {
-        setSelectedAgentId(null);
-      }
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [menuOpenSessionId, setMenuOpenSessionId] = useState<string | null>(null);
+  const [showStatusDrawer, setShowStatusDrawer] = useState(false);
+  
+  // Pinned Sessions State (persisted in localStorage)
+  const [pinnedSessionIds, setPinnedSessionIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('frassist_pinned_sessions');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
     }
-  };
+  });
 
-  const handleInspectAgent = (e: React.MouseEvent, agentId: string) => {
-    e.stopPropagation();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Inspect specialized agent handler
+  const handleInspectAgent = (agentId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     setSelectedAgentId(agentId);
     setShowInspector(true);
     socket?.emit('request_agent_details', { agentId });
   };
 
+  // Delete specialized agent handler
+  const handleDeleteAgent = (agentId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (window.confirm(`Are you sure you want to delete ${agentId}?`)) {
+      socket?.emit('delete_agent', { agentId });
+      if (selectedAgentId === agentId) {
+        setSelectedAgentId(null);
+        setActiveChannel('web');
+      }
+    }
+  };
+
+  // Sync pinned sessions to localStorage
+  const togglePinSession = (sessionId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setPinnedSessionIds(prev => {
+      const next = prev.includes(sessionId)
+        ? prev.filter(id => id !== sessionId)
+        : [...prev, sessionId];
+      try {
+        localStorage.setItem('frassist_pinned_sessions', JSON.stringify(next));
+      } catch (err) {
+        console.error('Failed to save pinned sessions', err);
+      }
+      return next;
+    });
+    setMenuOpenSessionId(null);
+  };
+
+  // Close context menu on outside click
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpenSessionId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  // Keyboard shortcut listener: Shift + N for new agent / chat
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.shiftKey && (e.key === 'N' || e.key === 'n') && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+        e.preventDefault();
+        setShowCreateModal(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [setShowCreateModal]);
+
+  // Focus search input when toggled open
+  useEffect(() => {
+    if (isSearchOpen) {
+      searchInputRef.current?.focus();
+    }
+  }, [isSearchOpen]);
+
+  // Handle session item click (supports Shift+Click to pin)
+  const handleSessionClick = (session: ChatSession, e: React.MouseEvent) => {
+    if (e.shiftKey) {
+      togglePinSession(session.id, e);
+      return;
+    }
+    setActiveSessionId(session.id);
+    if (session.channel && session.channel !== activeChannel) {
+      setActiveChannel(session.channel);
+    }
+    socket?.emit('load_session', { sessionId: session.id });
+  };
+
+  // Filter sessions based on search query
+  const filteredSessions = useMemo(() => {
+    if (!searchQuery.trim()) return sessions;
+    const q = searchQuery.toLowerCase();
+    return sessions.filter(s => s.title.toLowerCase().includes(q) || s.id.toLowerCase().includes(q));
+  }, [sessions, searchQuery]);
+
+  // Filter active agents based on search query
+  const filteredAgents = useMemo(() => {
+    if (!searchQuery.trim()) return activeAgents;
+    const q = searchQuery.toLowerCase();
+    return activeAgents.filter(a => a.name.toLowerCase().includes(q) || a.role.toLowerCase().includes(q) || a.id.toLowerCase().includes(q));
+  }, [activeAgents, searchQuery]);
+
+  // Separate pinned and unpinned sessions
+  const pinnedSessions = useMemo(() => {
+    return filteredSessions.filter(s => pinnedSessionIds.includes(s.id));
+  }, [filteredSessions, pinnedSessionIds]);
+
+  const regularSessions = useMemo(() => {
+    return filteredSessions.filter(s => !pinnedSessionIds.includes(s.id));
+  }, [filteredSessions, pinnedSessionIds]);
+
   return (
-    <aside className="sidebar" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Header */}
-      <div className="sidebar-header" style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div className="brand" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Bot size={24} className="brand-icon" color="#3b82f6" />
-          <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0 }}>FrAssist</h2>
-        </div>
-        <button 
-          onClick={onNewChat}
-          className="add-btn"
-          title="Start New Chat Session"
-          style={{
-            background: '#3b82f6',
-            color: 'white',
-            border: 'none',
-            borderRadius: '8px',
-            padding: '0.4rem 0.6rem',
-            fontSize: '0.75rem',
-            fontWeight: 600,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.3rem',
-            cursor: 'pointer',
-            boxShadow: '0 2px 6px rgba(59,130,246,0.3)'
-          }}
+    <aside className="macos-sidebar">
+      {/* Top Header Icons (Toggle Sidebar, Search) */}
+      <div className="macos-sidebar-top-bar">
+        <button
+          onClick={onToggleSidebar}
+          className="top-bar-icon-btn"
+          title="Toggle sidebar"
+          aria-label="Toggle sidebar"
         >
-          <Plus size={14} /> New
+          <SidebarToggleIcon size={16} />
+        </button>
+
+        <button
+          onClick={() => {
+            setIsSearchOpen(!isSearchOpen);
+            if (isSearchOpen) setSearchQuery('');
+          }}
+          className={`top-bar-icon-btn ${isSearchOpen ? 'active' : ''}`}
+          title="Search chats & agents"
+          aria-label="Search chats & agents"
+        >
+          <Search size={16} />
         </button>
       </div>
 
-      {/* Scrollable Navigation Body */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 0.75rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-        
-        {/* 1. CHANNELS SECTION */}
-        <div className="sidebar-section">
-          <h3 className="section-title" style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>
-            Channels & Workspaces
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-            {/* Web Workspace */}
-            <div 
-              className={`menu-item ${activeChannel === 'web' && !selectedAgentId ? 'active' : ''}`}
-              onClick={() => {
-                setActiveChannel('web');
-                setSelectedAgentId(null);
-              }}
-              style={{ padding: '0.5rem 0.6rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <Globe size={16} color="#3b82f6" />
-                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Web Workspace</span>
-              </div>
-              <span style={{ fontSize: '0.65rem', background: '#dbeafe', color: '#1d4ed8', padding: '1px 6px', borderRadius: '10px', fontWeight: 600 }}>Main</span>
-            </div>
-
-            {/* WhatsApp Channel */}
-            <div 
-              className={`menu-item ${activeChannel === 'whatsapp' ? 'active' : ''}`}
-              onClick={() => {
-                setActiveChannel('whatsapp');
-                setSelectedAgentId(null);
-                onOpenWhatsApp();
-              }}
-              style={{ padding: '0.5rem 0.6rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <MessageSquare size={16} color="#25D366" />
-                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>WhatsApp</span>
-              </div>
-              <span style={{
-                fontSize: '0.65rem',
-                background: whatsappConnected ? '#dcfce7' : '#f1f5f9',
-                color: whatsappConnected ? '#15803d' : '#64748b',
-                padding: '1px 6px',
-                borderRadius: '10px',
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '3px'
-              }}>
-                <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: whatsappConnected ? '#22c55e' : '#94a3b8' }}></span>
-                {whatsappConnected ? 'Paired' : 'Pair'}
-              </span>
-            </div>
-
-            {/* Telegram Channel */}
-            <div 
-              className={`menu-item ${activeChannel === 'telegram' ? 'active' : ''}`}
-              onClick={() => {
-                setActiveChannel('telegram');
-                setSelectedAgentId(null);
-              }}
-              style={{ padding: '0.5rem 0.6rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <Send size={16} color="#0088cc" />
-                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Telegram Bot</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 2. AGENTS DIRECT SESSIONS */}
-        <div className="sidebar-section">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
-            <h3 className="section-title" style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>
-              Specialized Agents
-            </h3>
-            <button 
-              onClick={() => setShowCreateModal(true)} 
-              style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', padding: 0 }}
-              title="Create Custom Agent"
-            >
-              <Plus size={14} />
+      {/* Inline Search Bar (Expands smoothly) */}
+      {isSearchOpen && (
+        <div className="macos-sidebar-search-box">
+          <Search size={13} className="search-box-icon" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            placeholder="Search chats & agents..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="search-box-input"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="search-box-clear">
+              <X size={12} />
             </button>
-          </div>
-          <div className="agent-menu" style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-            {activeAgents.map((agent) => (
-              <div 
-                key={agent.id} 
-                className={`menu-item ${selectedAgentId === agent.id ? 'active' : ''}`}
-                onClick={() => {
-                  setSelectedAgentId(agent.id);
-                  setActiveChannel('agent');
-                }}
-                style={{ padding: '0.45rem 0.6rem', borderRadius: '8px', cursor: 'pointer' }}
-              >
-                <div className="item-main">
-                  <div className="item-icon">
-                    {agent.id === 'orchestrator' ? <Bot size={16} /> : agent.icon}
-                    <span className={`status-dot ${agent.status}`}></span>
-                  </div>
-                  <div className="item-info">
-                    <span className="item-name" style={{ fontSize: '0.82rem' }}>{agent.name}</span>
-                    <span className="item-role" style={{ fontSize: '0.7rem' }}>{agent.role}</span>
-                  </div>
-                </div>
-                
-                <div className="item-actions">
-                  <button 
-                    className="action-btn" 
-                    onClick={(e) => handleInspectAgent(e, agent.id)}
-                    title="Agent Details"
-                  >
-                    <Settings size={13} />
-                  </button>
-                  {agent.id !== 'orchestrator' && (
-                    <button 
-                      className="action-btn delete" 
-                      onClick={(e) => handleDeleteAgent(e, agent.id)}
-                      title="Delete Agent"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+          )}
         </div>
+      )}
 
-        {/* 3. PAST CHATS / SESSIONS */}
-        <div className="sidebar-section">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
-            <h3 className="section-title" style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-              <Clock size={12} /> Past Chats
-            </h3>
-            <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}>7-day TTL</span>
+      {/* Primary Top Action Navigation */}
+      <div className="macos-nav-list">
+        {/* 0. New chat */}
+        <button 
+          onClick={onNewChat}
+          className="macos-nav-item new-chat-nav-item"
+        >
+          <div className="nav-item-left">
+            <Plus size={17} className="nav-item-icon" />
+            <span className="nav-item-label">New chat</span>
+          </div>
+        </button>
+
+        {/* 1. New agent */}
+        <button 
+          onClick={() => setShowCreateModal(true)}
+          className="macos-nav-item"
+        >
+          <div className="nav-item-left">
+            <Bot size={17} className="nav-item-icon" />
+            <span className="nav-item-label">New agent</span>
+          </div>
+          <div className="kbd-shortcut-group">
+            <span className="kbd-badge">⇧</span>
+            <span className="kbd-badge">N</span>
+          </div>
+        </button>
+
+        {/* 2. Skills */}
+        <button 
+          onClick={() => {
+            if (onOpenSkills) {
+              onOpenSkills();
+            } else {
+              setShowInspector(true);
+            }
+          }}
+          className="macos-nav-item"
+        >
+          <div className="nav-item-left">
+            <Layers size={17} className="nav-item-icon" />
+            <span className="nav-item-label">Skills</span>
+          </div>
+        </button>
+
+        {/* 3. Messaging */}
+        <button 
+          onClick={() => {
+            if (onOpenMessaging) {
+              onOpenMessaging();
+            } else {
+              onOpenWhatsApp();
+            }
+          }}
+          className={`macos-nav-item ${activeChannel === 'whatsapp' ? 'active-channel' : ''}`}
+        >
+          <div className="nav-item-left">
+            <MessageSquare size={17} className="nav-item-icon" />
+            <span className="nav-item-label">Messaging</span>
+          </div>
+          {whatsappConnected && (
+            <span className="channel-indicator-dot" title="WhatsApp Connected" />
+          )}
+        </button>
+
+        {/* 4. Artifacts */}
+        <button 
+          onClick={() => {
+            if (onOpenArtifacts) {
+              onOpenArtifacts();
+            }
+          }}
+          className="macos-nav-item"
+        >
+          <div className="nav-item-left">
+            <FileText size={17} className="nav-item-icon" />
+            <span className="nav-item-label">Artifacts</span>
+          </div>
+        </button>
+      </div>
+
+      {/* Main Scrollable Content Area */}
+      <div className="macos-sidebar-scroll-body">
+        
+        {/* SECTION 1: PINNED */}
+        <div className="macos-section">
+          <div className="macos-section-header">
+            <GridDotIcon size={12} color="#2563eb" />
+            <span className="section-title-text">PINNED</span>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {sessions.length === 0 ? (
-              <div style={{ padding: '0.75rem 0.5rem', textAlign: 'center', fontSize: '0.75rem', color: '#94a3b8' }}>
-                No past sessions yet
-              </div>
-            ) : (
-              sessions.map((s) => {
-                const isActive = activeSessionId === s.id;
+          {pinnedSessions.length === 0 ? (
+            <div className="pinned-empty-state">
+              <PinHelperIcon size={14} />
+              <span>Shift click to pin a chat</span>
+            </div>
+          ) : (
+            <div className="session-items-list">
+              {pinnedSessions.map((session) => {
+                const isSelected = activeSessionId === session.id;
+                const isWorking = Boolean(sessionWorkingMap[session.id]);
+                const isMenuOpen = menuOpenSessionId === session.id;
+
                 return (
                   <div
-                    key={s.id}
-                    className={`menu-item ${isActive ? 'active' : ''}`}
-                    onClick={() => {
-                      setActiveSessionId(s.id);
-                      socket?.emit('load_session', { sessionId: s.id });
-                    }}
-                    style={{
-                      padding: '0.5rem 0.6rem',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.25rem',
-                      border: isActive ? '1px solid #bfdbfe' : '1px solid transparent'
-                    }}
+                    key={`pinned-${session.id}`}
+                    onClick={(e) => handleSessionClick(session, e)}
+                    className={`session-row ${isSelected ? 'selected' : ''}`}
+                    title={`${session.title} (Shift-click to unpin)`}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                      <span style={{
-                        fontSize: '0.8rem',
-                        fontWeight: isActive ? 700 : 500,
-                        color: isActive ? '#1d4ed8' : '#334155',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        maxWidth: '180px'
-                      }}>
-                        {s.title}
-                      </span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm('Delete this chat session?')) {
-                            onDeleteSession(s.id);
-                          }
-                        }}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: '#94a3b8',
-                          cursor: 'pointer',
-                          padding: '2px',
-                          display: 'flex',
-                          alignItems: 'center'
-                        }}
-                        title="Delete Session"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                    {isSelected ? (
+                      <div className="row-left-handle">
+                        <Equal size={14} className="handle-icon" />
+                      </div>
+                    ) : (
+                      <div className="row-left-dot">
+                        <Pin size={11} className="pinned-row-pin-icon" />
+                      </div>
+                    )}
+
+                    <span className="session-title-text">
+                      {session.title || 'Untitled Session'}
+                    </span>
+
+                    {isSelected ? (
+                      <div className="row-right-actions" onClick={e => e.stopPropagation()}>
+                        <span className="session-timestamp">
+                          {isWorking ? (
+                            <Loader2 size={11} className="spin-icon text-blue" />
+                          ) : (
+                            formatRelativeTime(session.updatedAt)
+                          )}
+                        </span>
+                        <button
+                          onClick={() => setMenuOpenSessionId(isMenuOpen ? null : session.id)}
+                          className="row-menu-btn"
+                          title="More options"
+                        >
+                          <MoreHorizontal size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="row-hover-actions" onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={(e) => togglePinSession(session.id, e)}
+                          className="hover-action-btn"
+                          title="Unpin chat"
+                        >
+                          <Pin size={11} className="active-pin" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm('Delete this chat?')) onDeleteSession(session.id);
+                          }}
+                          className="hover-action-btn hover-delete"
+                          title="Delete session"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Context Dropdown Menu */}
+                    {isMenuOpen && (
+                      <div className="session-context-menu" ref={menuRef}>
+                        <button
+                          onClick={(e) => togglePinSession(session.id, e)}
+                          className="menu-dropdown-item"
+                        >
+                          <Pin size={13} /> Unpin from top
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMenuOpenSessionId(null);
+                            if (confirm('Delete this chat session?')) {
+                              onDeleteSession(session.id);
+                            }
+                          }}
+                          className="menu-dropdown-item text-danger"
+                        >
+                          <Trash2 size={13} /> Delete chat
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* SECTION 2: SPECIALIZED AGENTS */}
+        <div className="macos-section">
+          <div className="macos-section-header">
+            <GridDotIcon size={12} color="#2563eb" />
+            <span className="section-title-text">SPECIALIZED AGENTS</span>
+            <span className="section-count-badge">{filteredAgents.length}</span>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="section-header-add-btn"
+              title="Create new specialized agent"
+            >
+              <Plus size={12} />
+            </button>
+          </div>
+
+          <div className="session-items-list">
+            {filteredAgents.length === 0 ? (
+              <div className="empty-sessions-hint" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Loader2 size={12} className="spin-icon text-blue" />
+                <span>Loading agents...</span>
+              </div>
+            ) : (
+              filteredAgents.map((agent) => {
+                const isSelected = selectedAgentId === agent.id && activeChannel === 'agent';
+                const isWorking = agent.status === 'working';
+
+                return (
+                  <div
+                    key={agent.id}
+                    onClick={() => {
+                      setSelectedAgentId(agent.id);
+                      setActiveChannel('agent');
+                    }}
+                    className={`session-row ${isSelected ? 'selected' : ''}`}
+                    title={`${agent.name} (${agent.role}) - Click to chat, click gear to inspect`}
+                  >
+                    {isSelected ? (
+                      <div className="row-left-handle">
+                        <Equal size={14} className="handle-icon" />
+                      </div>
+                    ) : (
+                      <div className="row-left-dot">
+                        <span className={`agent-status-indicator ${isWorking ? 'working' : 'idle'}`} />
+                      </div>
+                    )}
+
+                    <div className="agent-row-info">
+                      <span className="session-title-text">{agent.name}</span>
+                      <span className="agent-role-caption">{agent.role}</span>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.65rem', color: '#94a3b8' }}>
-                      {sessionWorkingMap[s.id] ? (
-                        <span style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '3px',
-                          fontSize: '0.62rem',
-                          color: '#2563eb',
-                          background: '#eff6ff',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          fontWeight: 600
-                        }}>
-                          <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> Running
-                        </span>
-                      ) : (
-                        <span>{formatRelativeTime(s.updatedAt)}</span>
+                    {/* Always accessible actions on selected, and hover actions on unselected */}
+                    <div className={isSelected ? "row-right-actions" : "row-hover-actions"} onClick={e => e.stopPropagation()}>
+                      <button
+                        onClick={(e) => handleInspectAgent(agent.id, e)}
+                        className="hover-action-btn"
+                        title="Inspect agent rules, skills & memory"
+                      >
+                        <Settings size={12} />
+                      </button>
+                      {agent.id !== 'orchestrator' && (
+                        <button
+                          onClick={(e) => handleDeleteAgent(agent.id, e)}
+                          className="hover-action-btn hover-delete"
+                          title="Delete agent"
+                        >
+                          <Trash2 size={12} />
+                        </button>
                       )}
-                      
-                      {/* Sub-agent tags */}
-                      <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-                        {s.subagentsUsed && s.subagentsUsed.map((agentId) => {
-                          const agentName = activeAgents.find(a => a.id === agentId)?.name || agentId;
-                          return (
-                            <span 
-                              key={agentId}
-                              style={{
-                                background: agentId === 'orchestrator' ? '#f1f5f9' : '#eff6ff',
-                                color: agentId === 'orchestrator' ? '#475569' : '#2563eb',
-                                padding: '1px 4px',
-                                borderRadius: '4px',
-                                fontSize: '0.6rem',
-                                fontWeight: 600,
-                                textTransform: 'capitalize'
-                              }}
-                            >
-                              {agentName}
-                            </span>
-                          );
-                        })}
-                      </div>
                     </div>
                   </div>
                 );
               })
             )}
           </div>
-          <div style={{ padding: '0.4rem 0.2rem', fontSize: '0.62rem', color: '#94a3b8', textAlign: 'center' }}>
-            Chats auto-clean after 7 days of inactivity
+        </div>
+
+        {/* SECTION 3: SESSIONS / PAST CHATS */}
+        <div className="macos-section">
+          <div className="macos-section-header">
+            <GridDotIcon size={12} color="#2563eb" />
+            <span className="section-title-text">CHATS</span>
+            <span className="section-count-badge">{regularSessions.length}</span>
+            <button
+              onClick={onNewChat}
+              className="section-header-add-btn"
+              title="Start new chat"
+            >
+              <Plus size={12} />
+            </button>
+          </div>
+
+          <div className="session-items-list">
+            {regularSessions.length === 0 ? (
+              <div className="empty-sessions-hint">
+                No past chat sessions yet.
+              </div>
+            ) : (
+              regularSessions.map((session) => {
+                const isSelected = activeSessionId === session.id;
+                const isWorking = Boolean(sessionWorkingMap[session.id]);
+                const isMenuOpen = menuOpenSessionId === session.id;
+
+                return (
+                  <div
+                    key={session.id}
+                    onClick={(e) => handleSessionClick(session, e)}
+                    className={`session-row ${isSelected ? 'selected' : ''}`}
+                    title={`${session.title} (Shift-click to pin)`}
+                  >
+                    {isSelected ? (
+                      <div className="row-left-handle">
+                        <Equal size={14} className="handle-icon" />
+                      </div>
+                    ) : (
+                      <div className="row-left-dot">
+                        <span className={`bullet-dot ${isWorking ? 'working-pulse' : ''}`} />
+                      </div>
+                    )}
+
+                    <span className="session-title-text">
+                      {session.title || 'Untitled Session'}
+                    </span>
+
+                    {isSelected ? (
+                      <div className="row-right-actions" onClick={e => e.stopPropagation()}>
+                        <span className="session-timestamp">
+                          {isWorking ? (
+                            <Loader2 size={11} className="spin-icon text-blue" />
+                          ) : (
+                            formatRelativeTime(session.updatedAt)
+                          )}
+                        </span>
+                        <button
+                          onClick={() => setMenuOpenSessionId(isMenuOpen ? null : session.id)}
+                          className="row-menu-btn"
+                          title="More options"
+                        >
+                          <MoreHorizontal size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="row-hover-actions" onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={(e) => togglePinSession(session.id, e)}
+                          className="hover-action-btn"
+                          title="Pin chat (Shift-click)"
+                        >
+                          <Pin size={11} />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm('Delete this chat?')) onDeleteSession(session.id);
+                          }}
+                          className="hover-action-btn hover-delete"
+                          title="Delete session"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Context Dropdown Menu */}
+                    {isMenuOpen && (
+                      <div className="session-context-menu" ref={menuRef}>
+                        <button
+                          onClick={(e) => togglePinSession(session.id, e)}
+                          className="menu-dropdown-item"
+                        >
+                          <Pin size={13} /> Pin to top
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMenuOpenSessionId(null);
+                            if (confirm('Delete this chat session?')) {
+                              onDeleteSession(session.id);
+                            }
+                          }}
+                          className="menu-dropdown-item text-danger"
+                        >
+                          <Trash2 size={13} /> Delete chat
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
 
       </div>
 
-      {/* Footer System Health & Usage */}
-      <div className="sidebar-footer" style={{ padding: '0.75rem', borderTop: '1px solid #e2e8f0' }}>
-        {heartbeat && (
-          <div className="footer-card heartbeat" style={{ marginBottom: '0.5rem' }}>
-            <div className="card-header">
-              <span className="status-label">SYSTEM HEALTH</span>
-              <span className="live-dot pulse">●</span>
-            </div>
-            <div className="heartbeat-stats">
-              <div className="stat-mini">
-                <span className="mini-label">CPU</span>
-                <span className="mini-val">{heartbeat.cpu?.[0]?.toFixed(2) || '0.00'}</span>
-              </div>
-              <div className="stat-mini">
-                <span className="mini-label">MEM</span>
-                <span className="mini-val">{heartbeat.mem?.usage?.toFixed(0) || '0'}%</span>
-              </div>
-              <div className="stat-mini">
-                <span className="mini-label">UP</span>
-                <span className="mini-val">{((heartbeat.uptime || 0) / 3600).toFixed(1)}h</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {ollamaStatus && (
-          <div className="footer-card ollama" style={{ marginBottom: '0.5rem' }}>
-            <div className="card-header">
-              <span className="status-label">LLM STATUS</span>
-              <span className="live-dot" style={{ color: ollamaStatus.status === 'Running' ? '#22c55e' : '#ef4444' }}>●</span>
-            </div>
-            <div className="model-list">
-              {ollamaStatus.models?.map((m: any, i: number) => (
-                <div key={i} className="model-item" style={{ fontSize: '0.7rem' }}>
-                  <span className="model-name">{m.name}</span>
-                </div>
-              )) || <span className="no-models" style={{ fontSize: '0.7rem' }}>Ollama Active</span>}
-            </div>
-          </div>
-        )}
-
+      {/* Minimalist Collapsible Status / Usage Bar at Bottom */}
+      <div className="macos-sidebar-footer">
         <div 
-          className="footer-card usage"
-          onClick={onUsageClick}
-          style={{ cursor: 'pointer' }}
+          className="footer-status-bar"
+          onClick={() => setShowStatusDrawer(!showStatusDrawer)}
+          title="Click to view System Status & Token Usage"
         >
-          <div className="card-header">
-            <span className="usage-label"><Brain size={12} /> CUMULATIVE USAGE</span>
+          <div className="status-bar-left">
+            <span className="system-indicator-dot" />
+            <span className="status-bar-label">
+              {ollamaStatus?.status === 'Running' || ollamaStatus?.status === 'Active' ? 'Ollama Active' : 'System Ready'}
+            </span>
           </div>
-          <div className="usage-grid">
-            <div className="usage-stat">
-              <span className="stat-val">{(systemStats.total_input_tokens / 1000).toFixed(1)}k</span>
-              <span className="stat-label">In</span>
-            </div>
-            <div className="usage-stat">
-              <span className="stat-val">{(systemStats.total_output_tokens / 1000).toFixed(1)}k</span>
-              <span className="stat-label">Out</span>
-            </div>
+          <div className="status-bar-right">
+            <span className="status-tokens-text">
+              {((systemStats.total_input_tokens + systemStats.total_output_tokens) / 1000).toFixed(1)}k tok
+            </span>
+            <ChevronDown 
+              size={12} 
+              className={`footer-chevron ${showStatusDrawer ? 'open' : ''}`} 
+            />
           </div>
         </div>
+
+        {/* Expanded Details Drawer */}
+        {showStatusDrawer && (
+          <div className="footer-drawer-content">
+            {heartbeat && (
+              <div className="drawer-metric-row">
+                <span className="metric-name">CPU / MEM</span>
+                <span className="metric-val">
+                  {heartbeat.cpu?.[0]?.toFixed(1) || '0.0'}% / {heartbeat.mem?.usage?.toFixed(0) || '0'}%
+                </span>
+              </div>
+            )}
+            <div 
+              className="drawer-metric-row clickable"
+              onClick={onUsageClick}
+            >
+              <span className="metric-name" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <Brain size={12} color="#3b82f6" /> Usage Dashboard
+              </span>
+              <span className="metric-link">View &rarr;</span>
+            </div>
+          </div>
+        )}
       </div>
     </aside>
   );

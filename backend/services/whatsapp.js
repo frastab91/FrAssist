@@ -10,6 +10,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { formatKnowledgeBaseContext } from './rag.js';
 import { createChatCompletion as callDigitalOcean } from './digitalocean.js';
 import { recordTokenUsage, estimateTokens } from './tokenTracker.js';
+import { fetchOllamaCloudWithFailover } from './ollama_client.js';
 
 let sock = null;
 let ioInstance = null;
@@ -350,7 +351,7 @@ export async function getWhatsAppModel() {
     const row = await db.get(`SELECT value FROM whatsapp_settings WHERE key = 'model' LIMIT 1`);
     if (row && row.value) return row.value;
   } catch (e) {}
-  return process.env.WHATSAPP_AI_MODEL || 'gemini';
+  return process.env.WHATSAPP_AI_MODEL || process.env.DEFAULT_LLM_PROVIDER || 'ollama_cloud';
 }
 
 export async function setWhatsAppModel(model) {
@@ -432,16 +433,59 @@ CRITICAL RULES:
    - Do NOT output prefixes like "Assistant:", "Host:", "Concierge:" or markdown code fences.`;
 
   const chosenModel = modelOverride || (await getWhatsAppModel());
-  console.log(`[WhatsApp Auto-Reply] Evaluating with model: ${chosenModel}`);
+  let effectiveModel = chosenModel;
+  if (!effectiveModel || effectiveModel === 'auto' || effectiveModel === 'auto_hybrid') {
+    const { routeTask } = await import('./modelRouter.js');
+    const route = routeTask({
+      message: guestMessage,
+      channel: 'whatsapp',
+      agentId: 'vacation_rental_manager'
+    });
+    effectiveModel = route.provider;
+    console.log(`[WhatsApp Auto-Reply] Smart Router selected: ${effectiveModel} (${route.reason})`);
+  }
+  console.log(`[WhatsApp Auto-Reply] Evaluating with model: ${effectiveModel} (configured: ${chosenModel})`);
 
   try {
     let replyText = '';
 
+    // 0. Ollama Cloud execution with automatic multi-key failover
+    if (effectiveModel.startsWith('ollama_cloud')) {
+      const cloudModel = effectiveModel.startsWith('ollama_cloud:') 
+        ? effectiveModel.substring(13) 
+        : (process.env.OLLAMA_CLOUD_MODEL || 'nemotron-3-nano:30b');
+
+      const ollamaRes = await fetchOllamaCloudWithFailover('https://ollama.com/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: cloudModel,
+          messages: [
+            { role: 'system', content: 'You are the digital concierge for Tra-Montiemare vacation rentals in Scalea hosted by Francesco & Enerlida.' },
+            { role: 'user', content: strictPrompt }
+          ],
+          stream: false
+        })
+      }, {
+        logTag: 'WhatsApp Concierge (Ollama Cloud)',
+        onFailover: (info) => {
+          console.warn(`[WhatsApp Concierge] Key #${info.fromKeyIndex} quota/error limit reached. Failed over to backup key #${info.toKeyIndex}!`);
+        }
+      });
+
+      const oData = await ollamaRes.json();
+      const content = oData.message?.content || '';
+      const thinking = oData.message?.thinking || '';
+      replyText = (content.trim() !== '' ? content : (thinking.trim() !== '' ? thinking : '')).trim();
+      const pIn = oData.prompt_eval_count || estimateTokens(strictPrompt);
+      const pOut = oData.eval_count || estimateTokens(replyText);
+      recordTokenUsage('whatsapp_concierge', pIn, pOut, pIn + pOut, `ollama_cloud/${cloudModel}`).catch(() => {});
+    }
     // 1. Ollama local model execution
-    if (chosenModel.startsWith('ollama')) {
-      const defaultOllamaModel = chosenModel.startsWith('ollama:') 
-        ? chosenModel.substring(7) 
-        : (chosenModel === 'ollama_qwen' ? 'qwen2.5-coder:14b' : 'qwen2.5-coder:14b');
+    else if (effectiveModel.startsWith('ollama')) {
+      const defaultOllamaModel = effectiveModel.startsWith('ollama:') 
+        ? effectiveModel.substring(7) 
+        : (effectiveModel === 'ollama_qwen' ? 'qwen2.5-coder:14b' : 'qwen2.5-coder:14b');
       
       const ollamaRes = await fetch('http://localhost:11434/api/chat', {
         method: 'POST',
@@ -463,48 +507,37 @@ CRITICAL RULES:
         throw new Error(`Ollama Error (${ollamaRes.status}): ${await ollamaRes.text()}`);
       }
     } 
-    // 2. Perplexity Sonar execution
-    else if (chosenModel === 'perplexity') {
-      if (!process.env.PERPLEXITY_API_KEY) {
-        throw new Error('PERPLEXITY_API_KEY is not set in backend/.env');
-      }
-      const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: 'sonar',
-          messages: [{ role: 'user', content: strictPrompt }]
-        })
-      });
-      if (pRes.ok) {
-        const pData = await pRes.json();
-        replyText = pData.choices?.[0]?.message?.content?.trim() || '';
-        const pIn = pData.usage?.prompt_tokens || estimateTokens(strictPrompt);
-        const pOut = pData.usage?.completion_tokens || estimateTokens(replyText);
-        recordTokenUsage('whatsapp_concierge', pIn, pOut, pIn + pOut, 'sonar').catch(() => {});
-      } else {
-        throw new Error(`Perplexity Error (${pRes.status}): ${await pRes.text()}`);
-      }
-    }
-    // 3. DigitalOcean Serverless Inference Router execution
-    else if (chosenModel.startsWith('digitalocean') || chosenModel.startsWith('do') || chosenModel.startsWith('router:')) {
-      const doModel = chosenModel.startsWith('digitalocean:')
-        ? chosenModel.substring(13)
-        : (chosenModel.startsWith('do:') ? chosenModel.substring(3) : (chosenModel === 'digitalocean' || chosenModel === 'do' ? undefined : chosenModel));
+    // 2. DigitalOcean Serverless Inference Router execution
+    else if (effectiveModel.startsWith('digitalocean') || effectiveModel.startsWith('do') || effectiveModel.startsWith('router:')) {
+      const doModel = effectiveModel.startsWith('digitalocean:')
+        ? effectiveModel.substring(13)
+        : (effectiveModel.startsWith('do:') ? effectiveModel.substring(3) : (effectiveModel === 'digitalocean' || effectiveModel === 'do' ? undefined : effectiveModel));
       
       replyText = (await callDigitalOcean([
         { role: 'user', content: strictPrompt }
       ], { model: doModel, agentId: 'whatsapp_concierge' }))?.trim() || '';
     }
+    // 3. Google Gemini execution (also fallback for deprecated perplexity)
+    else if (effectiveModel === 'gemini' || effectiveModel === 'perplexity' || effectiveModel.startsWith('gemini')) {
+      if (!vertexAI) {
+        throw new Error('Google Vertex AI is not initialized');
+      }
+      const model = vertexAI.preview.getGenerativeModel({ model: 'gemini-2.5-flash' });
+      const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: strictPrompt }] }],
+        systemInstruction: {
+          role: 'system',
+          parts: [{ text: 'You are the digital concierge for Tra-Montiemare vacation rentals in Scalea hosted by Francesco & Enerlida.' }]
+        }
+      });
+      replyText = result.response.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    }
     // 4. Groq Fast Cloud LLM execution
-    else if (chosenModel.startsWith('groq') || chosenModel.includes('gpt-oss') || chosenModel.includes('qwen3.6')) {
+    else if (effectiveModel.startsWith('groq') || effectiveModel.includes('gpt-oss') || effectiveModel.includes('qwen3.6')) {
       if (!process.env.GROQ_API_KEY) {
         throw new Error('GROQ_API_KEY is not set in backend/.env');
       }
-      const groqModel = chosenModel.startsWith('groq:') ? chosenModel.substring(5) : (chosenModel === 'groq' ? 'openai/gpt-oss-120b' : chosenModel);
+      const groqModel = effectiveModel.startsWith('groq:') ? effectiveModel.substring(5) : (effectiveModel === 'groq' ? 'openai/gpt-oss-120b' : effectiveModel);
       const gRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {

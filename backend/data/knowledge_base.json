@@ -2,7 +2,7 @@
   {
     "id": "faq_checkin_time",
     "question": "What time is check-in?",
-    "answer": "Check-in is usually from 3:00 PM onward. If you are arriving earlier, contact us and we will do our best to accommodate your arrival time when possible.",
+    "answer": "Check-in is usually from 3:00 PM onward. If you are arriving earlier, please let us know in advance and we will do our best to accommodate your arrival time when possible.",
     "topic": "check-in",
     "tags": [
       "check-in",
@@ -20,7 +20,7 @@
   {
     "id": "faq_checkout_time",
     "question": "What time is check-out?",
-    "answer": "Check-out is by 10:00 AM. If you need a late departure, please contact us in advance and we will check if it is possible.",
+    "answer": "Check-out is by 10:00 AM. Please close the house, dispose of kitchen trash in the nearby neighborhood bins, and leave the keys inside the keybox where you found them on arrival (scrambling the code numbers after closing). If you need a late departure, please contact us in advance to check availability.",
     "topic": "check-out",
     "tags": [
       "check-out",
@@ -29,231 +29,322 @@
     ],
     "source": "manual",
     "language": "en",
-    "summary": "Guest departure timing and late departure requests.",
+    "summary": "Guest departure timing and checkout instructions.",
     "participant": "guest support"
   },
   {
     "id": "faq_keys_access",
     "question": "Where are the keys and how do I access the apartment?",
-    "answer": "The keys are in the larger keybox next to the trash bin. The apartment code is 1506. Please use the keybox as instructed in your arrival guide.",
+    "answer": "The keys are in the larger keybox next to the trash bin outside the entrance. You will receive your specific keybox combination code before arrival. Please use the keybox as shown in the digital arrival guide and remember to scramble the numbers after retrieving or returning the keys.",
     "topic": "arrival logistics",
     "tags": [
       "keys",
       "access",
-      "arrival"
+      "arrival",
+      "keybox"
     ],
     "source": "manual",
     "language": "en",
-    "summary": "How to access the apartment on arrival.",
+    "summary": "How to access the apartment on arrival using the keybox.",
     "participant": "guest support",
     "links": [
-      "https://www.tra-montiemare.it/guest?code=PZ52B7"
+      "https://www.tra-montiemare.it/guest"
+    ]
+  },
+  {
+    "id": "faq_trash_collection",
+    "question": "How does trash collection and recycling work?",
+    "answer": "Waste separation is mandatory in Scalea. Please separate your trash into: 1) Organic / Food waste (in compostable bags), 2) Plastic and Metal cans (in yellow/transparent bags), 3) Paper and Cardboard (clean/folded in paper bags), 4) Glass (directly in green bins), and 5) Residual Non-Recyclable waste (in standard grey bags). The neighborhood collection bins are located just a few steps away from the house near the public fountain and Piazza Maggiore de Palma. Please take out your rubbish daily and ensure all bins are emptied before checkout. Full visual guidelines are available in your digital guest guide.",
+    "topic": "trash & recycling",
+    "tags": [
+      "trash",
+      "rubbish",
+      "garbage",
+      "recycling",
+      "spazzatura",
+      "differenziata",
+      "house rules"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Scalea trash sorting and neighborhood collection point instructions.",
+    "participant": "guest support",
+    "links": [
+      "https://maps.app.goo.gl/4Th9NvdMSMLZabADA?g_st=ic",
+      "https://www.tra-montiemare.it/guest"
     ]
   },
   {
     "id": "faq_wifi",
     "question": "Where can I find the WiFi password?",
-    "answer": "The WiFi network is 'TraMontieMare' and the password is 'NordSud3St1991!'. It is also available on the guest guide and on the modem.",
+    "answer": "The WiFi network is 'TraMontieMare' and the password is 'NordSud3St1991!'. High-speed internet is available throughout the apartment and is also printed in your guest guide.",
     "topic": "wifi",
     "tags": [
       "wifi",
-      "internet"
+      "internet",
+      "connection"
     ],
     "source": "manual",
     "language": "en",
-    "summary": "Guest internet access instructions.",
+    "summary": "Guest WiFi credentials and internet details.",
     "participant": "guest support",
     "links": [
-      "https://www.tra-montiemare.it/guest?code=PZ52B7"
+      "https://www.tra-montiemare.it/guest"
+    ]
+  },
+  {
+    "id": "faq_pizza_recommendations",
+    "question": "Where can I find a good pizza restaurant in Scalea?",
+    "answer": "Francesco & Enerlida's top pizza and casual dining recommendations in Scalea include:\n1. **Pizzeria Mediterranea**: A cozy, beloved local spot for traditional wood-fired pizza.\n2. **La Rondinella Osteria Pop** (Via Vittorio Emanuele III, 7): Francesco's favorite restaurant in Scalea, featuring delicious local Calabrian dishes, great pizzas, and wine: https://maps.app.goo.gl/V9H71gWeBZL6E1uE7?g_st=iwb\n3. **Cimalonga** (Centro Storico): Located right in the historic center near the house, offering authentic Calabrian flavors and warm hospitality.\n4. **Antica Trattoria** (Centro Storico): Another classic old-town favorite for authentic regional specialties.\nWhether you prefer dining in the medieval old town or strolling down towards the promenade, these are our personal favorites!",
+    "topic": "dining & pizza",
+    "tags": [
+      "pizza",
+      "pizzeria",
+      "restaurant",
+      "dining",
+      "food",
+      "scalea",
+      "local recommendations"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Host-recommended pizzerias and traditional trattorias in Scalea.",
+    "participant": "guest support",
+    "links": [
+      "https://maps.app.goo.gl/V9H71gWeBZL6E1uE7?g_st=iwb",
+      "https://maps.app.goo.gl/K2YyKcpbjwwYW82fA"
+    ]
+  },
+  {
+    "id": "faq_seafood_restaurants",
+    "question": "What are the best restaurants for fresh seafood and local dining?",
+    "answer": "For seafood and regional dining, here are our handpicked favorites:\n1. **Fresco di Mare - Friggitoria di Mare** (Via Plinio Il Vecchio): Fresh, authentic seafood and fried fish with top quality at honest local prices: https://maps.app.goo.gl/t59p3BmYSkPLxaHr6?g_st=iw\n2. **La Rondinella Osteria Pop**: Francesco's personal favorite for local dishes and warm atmosphere: https://maps.app.goo.gl/V9H71gWeBZL6E1uE7?g_st=iwb\n3. **Ristorante Vigrì** (Via Napoleone, 11): Refined local dining in town: https://maps.app.goo.gl/wZXDt7BENDpSvWEi9?g_st=ic\n4. **Il Corsaro** & **Ristorante La Calura**: Excellent beachfront seafood restaurants where you can dine with the sound of the sea.\n5. **Ristorante Da Lucio (in Cirella)**: A stunning spot for a scenic lunch if you explore nearby Cirella: https://maps.app.goo.gl/5junHjNeB48XAoZ39\n6. **Vecchio Frantoio**: Beautiful countryside rustic dining (requires a car): https://maps.app.goo.gl/RLLR9VgafSf6AxcGA",
+    "topic": "dining & seafood",
+    "tags": [
+      "seafood",
+      "fish",
+      "pesce",
+      "restaurants",
+      "dining",
+      "scalea",
+      "local recommendations"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Curated seafood and traditional restaurant recommendations.",
+    "participant": "guest support",
+    "links": [
+      "https://maps.app.goo.gl/t59p3BmYSkPLxaHr6?g_st=iw",
+      "https://maps.app.goo.gl/V9H71gWeBZL6E1uE7?g_st=iwb",
+      "https://maps.app.goo.gl/wZXDt7BENDpSvWEi9?g_st=ic",
+      "https://maps.app.goo.gl/5junHjNeB48XAoZ39",
+      "https://maps.app.goo.gl/RLLR9VgafSf6AxcGA"
+    ]
+  },
+  {
+    "id": "faq_cafes_breakfast_aperitivo",
+    "question": "Where should I go for morning coffee, breakfast, pastries, or an evening aperitivo?",
+    "answer": "Our favorite spots for coffee, sweets, and drinks:\n1. **Blend - Cocktail Bar** (Piazza Maggiore de Palma, 13): The best cocktail and aperitivo bar right at the edge of the historic center: https://maps.app.goo.gl/Wsosq2ewNDTGRi4m8?g_st=ic\n2. **Bar Pasticceria Gelateria Daniela** (Via Garibaldi, 46): Perfect for morning espresso, fresh artisanal cornetti (croissants), and gelato: https://maps.app.goo.gl/PX3Kp2feAETvqtXC8?g_st=iwb\n3. **Mary Loù** (Via Tommaso Campanella, 58): Wonderful bakery & cake shop on the walk into town: https://maps.app.goo.gl/GiyCYSA345gPFNVG8?g_st=iwb\n4. **Bar de l'Unità**: A classic Scalea gathering spot for morning cappuccino or afternoon spritz.\n5. **Pasticceria Aronne in Marcellina** (5-10 min bus/train): Renowned throughout the Riviera dei Cedri for specialty pastries and croissants made with fresh local Cedro (citron): https://maps.app.goo.gl/m1zSNeHMeKbUahwC8\n6. **Lido da Pietro** (Lungomare): Beach cafe where we regularly go for a drink by the water: https://maps.app.goo.gl/bGkiNsHraYk6mYbZ9?g_st=iwb",
+    "topic": "cafes & bars",
+    "tags": [
+      "coffee",
+      "breakfast",
+      "bar",
+      "pastry",
+      "gelato",
+      "aperitivo",
+      "cornetto",
+      "local info"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Host favorites for coffee, pastries, Cedro sweets, and aperitivo.",
+    "participant": "guest support",
+    "links": [
+      "https://maps.app.goo.gl/Wsosq2ewNDTGRi4m8?g_st=ic",
+      "https://maps.app.goo.gl/PX3Kp2feAETvqtXC8?g_st=iwb",
+      "https://maps.app.goo.gl/GiyCYSA345gPFNVG8?g_st=iwb",
+      "https://maps.app.goo.gl/m1zSNeHMeKbUahwC8",
+      "https://maps.app.goo.gl/bGkiNsHraYk6mYbZ9?g_st=iwb"
+    ]
+  },
+  {
+    "id": "faq_groceries_supermarkets",
+    "question": "Are there supermarkets and grocery stores nearby?",
+    "answer": "Yes, Scalea has great grocery options:\n1. **Alimentari Fornaro** (Via Fiume Lao, 27): Great local neighborhood grocery store for essentials, only a 7-minute walk: https://maps.app.goo.gl/WiCQJubbgXGDRwUw9?g_st=ic\n2. **Mercato Alimentari del Lunedì**: Large open-air farmers market every Monday morning for fresh local fruit, vegetables, cheeses, and regional food: https://maps.app.goo.gl/u2hrMGMbA2ZgqnPJA\n3. **Interspar Supermarket** (Via Fiume Lao): Full-sized large supermarket with complete selection (~19-20 min walk): https://maps.app.goo.gl/UdGGQd98Kg7UtauN9?g_st=ic\n4. **Io Bio Naturalmente Biologico** (Via Lauro, 66-72): Organic specialty food and goods: https://maps.app.goo.gl/1aaUMZQqE8NHCXgL6?g_st=ic",
+    "topic": "groceries & markets",
+    "tags": [
+      "groceries",
+      "supermarket",
+      "market",
+      "food shopping",
+      "spesa",
+      "scalea"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Local grocery stores, supermarkets, and the Monday farmers market.",
+    "participant": "guest support",
+    "links": [
+      "https://maps.app.goo.gl/WiCQJubbgXGDRwUw9?g_st=ic",
+      "https://maps.app.goo.gl/u2hrMGMbA2ZgqnPJA",
+      "https://maps.app.goo.gl/UdGGQd98Kg7UtauN9?g_st=ic",
+      "https://maps.app.goo.gl/1aaUMZQqE8NHCXgL6?g_st=ic"
+    ]
+  },
+  {
+    "id": "faq_beaches_and_sights",
+    "question": "Which beaches and sights do you recommend visiting?",
+    "answer": "Our top recommendations for beaches, sights, and excursions:\n1. **Spiaggia dell'Arcomagno (San Nicola Arcella)**: A breathtaking secluded sea cove framed by a natural rock arch (accessible via a short scenic hike, small ~€2 seasonal entry fee): https://maps.app.goo.gl/KiaMTiDi8VTpYiue6?g_st=ic\n2. **Palazzo dei Principi (Prince's Palace)**: Panoramic historic palazzo where Francesco & Enerlida got married, offering stunning views over the coast: https://maps.app.goo.gl/Sz7WJtR4Vn7w6mSD7\n3. **Scalea Historic Center & Norman Castle Ruins**: Step back in time strolling the cobblestone alleys and visiting the ancient Norman castle ruins.\n4. **Scalea Beach & Promenade**: Just a 5-minute walk down from the house to the crystal clear Tyrrhenian waters.\n5. **Marinella di Zambrone**: A picturesque coastal trip along the Calabrian coast: https://maps.app.goo.gl/jtiVimydKHQqNBKq7?g_st=ic\n6. **Pollino National Park & Orsomarso**: Incredible nature reserves for hiking, river walks, and river rafting.\n7. **Curated Local Experiences**: Connect with Chiara at Vera Italia for authentic food, farm, and cultural tours: https://www.veraitalia.it/esperienze/",
+    "topic": "beaches & sightseeing",
+    "tags": [
+      "beach",
+      "arcomagno",
+      "sightseeing",
+      "castello",
+      "mare",
+      "spiaggia",
+      "vera italia",
+      "experiences"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Must-see beaches, historical landmarks, and outdoor excursions.",
+    "participant": "guest support",
+    "links": [
+      "https://maps.app.goo.gl/KiaMTiDi8VTpYiue6?g_st=ic",
+      "https://maps.app.goo.gl/Sz7WJtR4Vn7w6mSD7",
+      "https://maps.app.goo.gl/jtiVimydKHQqNBKq7?g_st=ic",
+      "https://www.veraitalia.it/esperienze/"
     ]
   },
   {
     "id": "faq_parking",
-    "question": "Is there parking nearby?",
-    "answer": "There is parking very close to the property. The nearest free parking area is around a 5-minute walk away. If you want exact directions, we can share the map and the best option depending on your arrival time.",
+    "question": "Is there parking nearby and where should I park?",
+    "answer": "While the historic center is pedestrian-only, there is free parking located very close to the property (approximately a 5-7 minute easy walk). We can send you a direct map pin with the best parking locations: https://maps.app.goo.gl/Ee2f1gxhXAMAKSiv9",
     "topic": "parking",
     "tags": [
       "parking",
+      "car",
       "arrival",
-      "car"
+      "parcheggio"
     ],
     "source": "manual",
     "language": "en",
-    "summary": "Parking instructions for guests arriving by car.",
+    "summary": "Free parking areas located 5-7 minutes walk from the apartment.",
     "participant": "guest support",
     "links": [
       "https://maps.app.goo.gl/Ee2f1gxhXAMAKSiv9"
     ]
   },
   {
-    "id": "faq_reach_apartment",
-    "question": "How do I reach the apartment?",
-    "answer": "Use the guest guide and the Google Maps/arrival directions link for the exact route, parking, and access instructions. We also have a short video guide that shows the route from the station and the arrival steps.",
+    "id": "faq_car_rental",
+    "question": "Can I rent a car in Scalea?",
+    "answer": "Yes! We recommend **Noleggiami Italia Scalea** (C.so Mediterraneo, 139). Their office is just a 5-minute walk from the apartment, and we have rented cars from them multiple times with great service and fair rates: https://share.google/JS7axpQKl8ILSZgpq",
+    "topic": "car rental & transport",
+    "tags": [
+      "car rental",
+      "noleggio auto",
+      "transport",
+      "scalea"
+    ],
+    "source": "manual",
+    "language": "en",
+    "summary": "Recommended local car rental agency in Scalea.",
+    "participant": "guest support",
+    "links": [
+      "https://share.google/JS7axpQKl8ILSZgpq"
+    ]
+  },
+  {
+    "id": "faq_station_arrival_route",
+    "question": "How do I reach the apartment from the Scalea train station?",
+    "answer": "From the Scalea-Santa Domenica Talao train station you can take a quick 5-minute taxi ride or walk (about 15-20 minutes). When walking or taking a taxi, always follow the route passing through **Piazza Maggiore de Palma** — this is the easiest route with the fewest stairs leading up to the house: https://maps.app.goo.gl/Wd3ghFCLRonDuupn8?g_st=iwb . Check out our video directions here: https://youtube.com/shorts/mb15eTNgQow?feature=shared",
     "topic": "arrival logistics",
     "tags": [
+      "train station",
       "arrival",
       "directions",
+      "route",
+      "taxi",
       "video"
     ],
     "source": "manual",
     "language": "en",
-    "summary": "Arrival instructions and route guidance.",
+    "summary": "Easiest walking and taxi arrival route from Scalea train station.",
     "participant": "guest support",
     "links": [
-      "https://maps.app.goo.gl/Ee2f1gxhXAMAKSiv9",
-      "https://youtube.com/shorts/mb15eTNgQow?feature=shared",
-      "https://www.tra-montiemare.it/guest?code=PZ52B7"
+      "https://maps.app.goo.gl/Wd3ghFCLRonDuupn8?g_st=iwb",
+      "https://maps.app.goo.gl/hCXKnr7zd4UjDYmBA",
+      "https://youtube.com/shorts/mb15eTNgQow?feature=shared"
     ]
   },
   {
-    "id": "faq_laundry",
-    "question": "Where is the laundry detergent or washing pods?",
-    "answer": "There should be washing pods under the sink. If they are missing, please message us and we will ask the cleaning staff to check or replenish them.",
+    "id": "faq_ac_heating",
+    "question": "Is there air conditioning or heating in the apartment?",
+    "answer": "Yes, the apartment is equipped with modern air conditioning and heating units to ensure you stay comfortable in both summer and winter. Remote controls and operation tips are available inside the apartment and in the digital guide.",
     "topic": "amenities",
     "tags": [
-      "laundry",
+      "air conditioning",
+      "heating",
+      "ac",
       "amenities",
-      "cleaning"
+      "clima"
     ],
     "source": "manual",
     "language": "en",
-    "summary": "Where to find laundry detergent.",
+    "summary": "Climate control, heating, and air conditioning details.",
     "participant": "guest support"
   },
   {
-    "id": "faq_train_station",
-    "question": "How do I get from the train station to the apartment?",
-    "answer": "The simplest route is a short taxi ride from the station. If you prefer public transport, local buses and regional trains are also available. We can send the exact directions and the best parking option depending on your arrival time.",
-    "topic": "transport",
+    "id": "faq_laundry_pods",
+    "question": "Where is the laundry detergent or washing pods?",
+    "answer": "Washing machine pods are stocked in the cabinet under the sink. If you run out during a longer stay, please message us and our team will gladly replenish them.",
+    "topic": "amenities",
     "tags": [
-      "transport",
-      "arrival",
-      "train"
+      "laundry",
+      "washing machine",
+      "detergent",
+      "pods",
+      "amenities"
     ],
     "source": "manual",
     "language": "en",
-    "summary": "Station-to-property arrival guidance.",
-    "participant": "guest support",
-    "links": [
-      "https://maps.app.goo.gl/Ee2f1gxhXAMAKSiv9"
-    ]
+    "summary": "Location of washing machine pods and laundry supplies.",
+    "participant": "guest support"
   },
   {
-    "id": "faq_guest_guide",
-    "question": "Where is the guest guide?",
-    "answer": "The guest guide is in the property instructions link and includes access steps, WiFi, keybox instructions, parking, and local recommendations. Please use the link in your arrival email or message us if you need it again.",
+    "id": "faq_guest_guide_link",
+    "question": "Where can I find the digital guest guide?",
+    "answer": "Your personalized digital guest guide is the central hub for your stay, containing keybox codes, Wi-Fi password, video check-in walkthroughs, house rules, and local scalea tips: https://www.tra-montiemare.it/guest",
     "topic": "guest guide",
     "tags": [
       "guide",
+      "guest guide",
       "arrival",
       "instructions"
     ],
     "source": "manual",
     "language": "en",
-    "summary": "Where to find the property guide and arrival instructions.",
+    "summary": "Digital guest guide access link.",
     "participant": "guest support",
     "links": [
-      "https://www.tra-montiemare.it/guest?code=PZ52B7"
-    ]
-  },
-  {
-    "id": "faq_ac",
-    "question": "Is there air conditioning or heating?",
-    "answer": "Yes, the apartment has heating and air conditioning. Please use the control panel or ask us if you need help adjusting the system.",
-    "topic": "amenities",
-    "tags": [
-      "air conditioning",
-      "heating",
-      "amenities"
-    ],
-    "source": "manual",
-    "language": "en",
-    "summary": "Climate control and in-apartment comfort.",
-    "participant": "guest support"
-  },
-  {
-    "id": "faq_guest_guide_recommendations",
-    "question": "Where is the guest guide and how do I find local recommendations?",
-    "answer": "The guest guide is the main arrival and local info page for the apartment. It includes access instructions, parking, WiFi, keybox details, and local recommendations for beaches, restaurants, groceries, and transport. Use the property guide link and the Google Maps arrival link below.",
-    "topic": "local recommendations",
-    "tags": [
-      "guide",
-      "parking",
-      "beach",
-      "restaurants",
-      "groceries"
-    ],
-    "source": "manual",
-    "language": "en",
-    "summary": "Where to find the local guide and practical area information.",
-    "participant": "guest support",
-    "links": [
-      "https://www.tra-montiemare.it/guest?code=PZ52B7",
-      "https://maps.app.goo.gl/Ee2f1gxhXAMAKSiv9"
-    ]
-  },
-  {
-    "id": "faq_local_places",
-    "question": "Are there beaches, restaurants, and grocery options nearby?",
-    "answer": "Yes. The area around Scalea has beaches, local restaurants, and grocery options nearby. The guest guide and the local map links are the best place to find the most relevant spots for your stay, including beaches, food, and practical day-to-day stops.",
-    "topic": "local recommendations",
-    "tags": [
-      "beach",
-      "restaurants",
-      "groceries",
-      "local info"
-    ],
-    "source": "manual",
-    "language": "en",
-    "summary": "Local beach, restaurant, and grocery guidance for guests.",
-    "participant": "guest support",
-    "links": [
-      "https://www.tra-montiemare.it",
-      "https://maps.app.goo.gl/Ee2f1gxhXAMAKSiv9",
-      "https://youtube.com/shorts/mb15eTNgQow?feature=shared"
+      "https://www.tra-montiemare.it/guest"
     ]
   },
   {
     "id": "faq_google_review",
-    "question": "What is the Google profile link and how can guests leave a review for Tra-Montiemare?",
-    "answer": "Guests can leave a 5-star review on our Google profile using our direct review link: https://g.page/r/Cayc6lTPYTwfEBM/review. Our official Google Maps Business profile is https://maps.app.goo.gl/F33CuFGjuh6qmYGA7. We deeply appreciate 5-star reviews to support our hosting journey in Scalea.",
+    "question": "Where can I leave a review for TraMonti e Mare?",
+    "answer": "We would love and appreciate your feedback! You can leave us a Google review here: https://g.page/r/Cayc6lTPYTwfEBM/review . A 5-star review makes a huge difference for our family-run property!",
     "topic": "reviews",
     "tags": [
       "review",
       "google review",
-      "google profile",
-      "5 stars",
-      "recensione",
-      "feedback",
-      "rating",
-      "google maps"
-    ],
-    "source": "whatsapp_history",
-    "language": "en",
-    "summary": "Direct Google profile review link and Google Maps business page.",
-    "participant": "guest support",
-    "links": [
-      "https://g.page/r/Cayc6lTPYTwfEBM/review",
-      "https://maps.app.goo.gl/F33CuFGjuh6qmYGA7"
-    ]
-  },
-  {
-    "id": "faq_post_checkout_review_request",
-    "question": "How do we ask guests for a review after check-out or when requesting feedback?",
-    "answer": "After check-out or when guests express appreciation, we send a warm note asking for a 5-star Google review. In English: \"When you have some time, and if you would like to, we would appreciate a review on our google profile https://g.page/r/Cayc6lTPYTwfEBM/review (if you think we deserve, a 5 star would help a LOT!😊) 🙌❤️\". In Italian: \"Saremmo molto grati se tu e i tuoi amici di viaggio lasciate una recensione sulla nostra pagina Google https://g.page/r/Cayc6lTPYTwfEBM/review 😊 5⭐️ significherebbe molto!! 🫶\".",
-    "topic": "reviews",
-    "tags": [
-      "review request",
-      "post checkout",
-      "google review",
-      "5 star",
-      "recensione",
-      "template",
       "feedback"
     ],
-    "source": "whatsapp_history",
+    "source": "manual",
     "language": "en",
-    "summary": "Standard message templates for requesting 5-star Google reviews from guests.",
+    "summary": "Direct Google Business review link for guests.",
     "participant": "guest support",
     "links": [
       "https://g.page/r/Cayc6lTPYTwfEBM/review"

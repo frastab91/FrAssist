@@ -57,6 +57,17 @@ export function MissionControlModal({
   const [newJobTask, setNewJobTask] = useState('');
   const [newJobAgent, setNewJobAgent] = useState('orchestrator');
   const [isSubmittingJob, setIsSubmittingJob] = useState(false);
+
+  // Edit Cron Form state
+  const [editingJob, setEditingJob] = useState<{
+    id: number;
+    name: string;
+    cron: string;
+    task: string;
+    agentId: string;
+  } | null>(null);
+  const [isUpdatingJob, setIsUpdatingJob] = useState(false);
+
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
@@ -175,6 +186,51 @@ export function MissionControlModal({
       alert(`Error creating job: ${err.message}`);
     } finally {
       setIsSubmittingJob(false);
+    }
+  };
+
+  const handleStartEditJob = (job: any) => {
+    setShowNewJobModal(false);
+    setEditingJob({
+      id: job.id,
+      name: job.name || '',
+      cron: job.cron || '0 8 * * *',
+      task: job.task || '',
+      agentId: job.agentId || 'orchestrator'
+    });
+  };
+
+  const handleUpdateJob = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingJob) return;
+    if (!editingJob.name || !editingJob.cron || !editingJob.task) {
+      alert('Please fill out all fields');
+      return;
+    }
+    setIsUpdatingJob(true);
+    try {
+      const res = await fetch(`/api/jobs/${editingJob.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editingJob.name,
+          cron: editingJob.cron,
+          task: editingJob.task,
+          agentId: editingJob.agentId
+        })
+      });
+      if (res.ok) {
+        showNotification(`Updated cron job: "${editingJob.name}"`);
+        setEditingJob(null);
+        onRefresh();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to update job');
+      }
+    } catch (err: any) {
+      alert(`Error updating job: ${err.message}`);
+    } finally {
+      setIsUpdatingJob(false);
     }
   };
 
@@ -981,6 +1037,150 @@ export function MissionControlModal({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                   {(trackerData.jobs || []).map(job => {
                     const isActive = job.status === 'active';
+                    const isEditingThisJob = editingJob && editingJob.id === job.id;
+
+                    // Inline Editor for this specific job
+                    if (isEditingThisJob) {
+                      return (
+                        <div 
+                          key={job.id}
+                          style={{
+                            background: '#ffffff',
+                            borderRadius: '12px',
+                            border: '2px solid #2563eb',
+                            padding: '1.25rem',
+                            boxShadow: '0 8px 24px rgba(37, 99, 235, 0.12)'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <div style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '6px',
+                                background: '#eff6ff',
+                                color: '#2563eb',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                              }}>
+                                <Edit3 size={15} />
+                              </div>
+                              <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: '#1e293b' }}>
+                                Edit Cron Job: {job.name || `#${job.id}`}
+                              </h4>
+                            </div>
+                            <button 
+                              type="button" 
+                              onClick={() => setEditingJob(null)} 
+                              style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b' }}
+                            >
+                              <X size={18} />
+                            </button>
+                          </div>
+
+                          <form onSubmit={handleUpdateJob} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Job Name</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. Daily FT Digest"
+                                value={editingJob.name}
+                                onChange={(e) => setEditingJob({ ...editingJob, name: e.target.value })}
+                                required
+                                style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                              />
+                            </div>
+
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Target Agent</label>
+                              <select
+                                value={editingJob.agentId}
+                                onChange={(e) => setEditingJob({ ...editingJob, agentId: e.target.value })}
+                                style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem', boxSizing: 'border-box', background: 'white' }}
+                              >
+                                {(trackerData.agents || []).map(a => (
+                                  <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div style={{ gridColumn: 'span 2' }}>
+                              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>
+                                Cron Schedule Expression
+                              </label>
+                              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                <input
+                                  type="text"
+                                  placeholder="e.g. 0 8 * * *"
+                                  value={editingJob.cron}
+                                  onChange={(e) => setEditingJob({ ...editingJob, cron: e.target.value })}
+                                  required
+                                  style={{ flex: 1, minWidth: '160px', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem', boxSizing: 'border-box', fontFamily: 'monospace' }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingJob({ ...editingJob, cron: '0 8 * * *' })}
+                                  style={{ padding: '0.35rem 0.65rem', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.75rem', cursor: 'pointer' }}
+                                >
+                                  Daily 8AM
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingJob({ ...editingJob, cron: '0 9 * * 1-5' })}
+                                  style={{ padding: '0.35rem 0.65rem', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.75rem', cursor: 'pointer' }}
+                                >
+                                  Weekdays 9AM
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingJob({ ...editingJob, cron: '0 * * * *' })}
+                                  style={{ padding: '0.35rem 0.65rem', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.75rem', cursor: 'pointer' }}
+                                >
+                                  Hourly
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingJob({ ...editingJob, cron: '*/30 * * * *' })}
+                                  style={{ padding: '0.35rem 0.65rem', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.75rem', cursor: 'pointer' }}
+                                >
+                                  Every 30m
+                                </button>
+                              </div>
+                            </div>
+
+                            <div style={{ gridColumn: 'span 2' }}>
+                              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Task Prompt / Execution Instructions</label>
+                              <textarea
+                                rows={5}
+                                placeholder="What should the agent do when triggered?"
+                                value={editingJob.task}
+                                onChange={(e) => setEditingJob({ ...editingJob, task: e.target.value })}
+                                required
+                                style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem', boxSizing: 'border-box', lineHeight: 1.45 }}
+                              />
+                            </div>
+
+                            <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+                              <button
+                                type="button"
+                                onClick={() => setEditingJob(null)}
+                                style={{ padding: '0.45rem 0.85rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#64748b', fontSize: '0.8rem', cursor: 'pointer' }}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="submit"
+                                disabled={isUpdatingJob}
+                                style={{ padding: '0.45rem 1.1rem', borderRadius: '6px', border: 'none', background: '#2563eb', color: '#ffffff', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                              >
+                                {isUpdatingJob ? 'Saving Changes...' : 'Save Changes'}
+                              </button>
+                            </div>
+                          </form>
+                        </div>
+                      );
+                    }
 
                     return (
                       <div 
@@ -1039,6 +1239,7 @@ export function MissionControlModal({
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                           <button
+                            type="button"
                             onClick={() => handleTriggerJob(job.id)}
                             title="Run immediately in background"
                             style={{
@@ -1060,6 +1261,33 @@ export function MissionControlModal({
                           </button>
 
                           <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleStartEditJob(job);
+                            }}
+                            title="Edit Job"
+                            style={{
+                              padding: '0.4rem 0.75rem',
+                              borderRadius: '8px',
+                              border: '1px solid #cbd5e1',
+                              background: '#ffffff',
+                              color: '#1e293b',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.3rem',
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                            }}
+                          >
+                            <Edit3 size={13} color="#2563eb" />
+                            Edit
+                          </button>
+
+                          <button
+                            type="button"
                             onClick={() => handleToggleJob(job.id)}
                             title={isActive ? 'Pause Job' : 'Resume Job'}
                             style={{
@@ -1076,6 +1304,7 @@ export function MissionControlModal({
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => handleDeleteJob(job.id)}
                             title="Delete Job"
                             style={{

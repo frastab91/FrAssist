@@ -870,11 +870,27 @@ export function WhatsAppPage({ status, socket, onBackToWorkspace }: WhatsAppPage
                 cursor: 'pointer'
               }}
             >
-              <optgroup label="Cloud Models (Fast & Ready)">
-                <option value="perplexity">Perplexity Sonar (API Key active)</option>
+              <optgroup label="🚀 Smart Routing (Recommended)">
+                <option value="auto">⚡ Smart Hybrid Auto-Router</option>
+              </optgroup>
+              <optgroup label="⚡ Ollama Cloud (10 Top Frontier Models)">
+                <option value="ollama_cloud:gemma4:31b-cloud">Gemma 4 31B (Sub-300ms Fast)</option>
+                <option value="ollama_cloud:minimax-m3:cloud">MiniMax M3 (Multilingual Concierge)</option>
+                <option value="ollama_cloud:qwen3.5:397b-cloud">Qwen 3.5 397B (Italian/English)</option>
+                <option value="ollama_cloud:deepseek-v4-flash:cloud">DeepSeek V4 Flash (284B MoE)</option>
+                <option value="ollama_cloud:deepseek-v4-pro:cloud">DeepSeek V4 Pro (1.6T MoE Reasoning)</option>
+                <option value="ollama_cloud:kimi-k2.7-code:cloud">Kimi K2.7 Code (Agentic Flows)</option>
+                <option value="ollama_cloud:glm-5.2:cloud">GLM 5.2 (1M Context)</option>
+                <option value="ollama_cloud:nemotron-3-ultra:cloud">Nemotron-3 Ultra (550B MoE)</option>
+                <option value="ollama_cloud:gpt-oss:20b-cloud">GPT-OSS 20B (Ultra-Fast)</option>
+                <option value="ollama_cloud:rafw007/deepseek-v4-flash-fast:latest">DeepSeek-V4 Flash Fast (Ops)</option>
+                <option value="ollama_cloud">Ollama Cloud (Default)</option>
+              </optgroup>
+              <optgroup label="Other Cloud Models">
+                <option value="digitalocean">DigitalOcean Serverless Router</option>
                 <option value="groq:openai/gpt-oss-120b">Groq (GPT-OSS-120B - Fast)</option>
                 <option value="groq:qwen/qwen3.6-27b">Groq (Qwen 3.6 27B)</option>
-                <option value="gemini">Google Gemini 2.5 Flash (AI Studio / Vertex)</option>
+                <option value="gemini">Google Gemini 2.5 Flash</option>
                 <option value="gemini-1.5-flash">Google Gemini 1.5 Flash</option>
               </optgroup>
               <optgroup label="Local Models (Ollama)">

@@ -1,0 +1,6 @@
+{
+  "model": "nemotron-3-ultra",
+  "messages": [{"role":"user","content":"Hello"}],
+  "stream": false,
+  "options": { "num_ctx": 131072 }
+}
