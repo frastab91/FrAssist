@@ -174,7 +174,7 @@ export default function App() {
     }
   };
 
-  const [currentStatus, setCurrentStatus] = useState('');
+  const [, setCurrentStatus] = useState('');
   const [ollamaStatus, setOllamaStatus] = useState<any>(null);
   const [keyStatus, setKeyStatus] = useState<KeyStatus>({ hasGemini: false, hasTavily: false, hasTelegram: false, hasPerplexity: false });
   const [isConfiguringKey, setIsConfiguringKey] = useState<'gemini' | 'tavily' | 'telegram' | 'perplexity' | 'ollama' | 'digitalocean' | 'duffel' | null>(null);
@@ -371,12 +371,23 @@ export default function App() {
 
     newSocket.on('session_working_status', ({ sessionId, isWorking }: { sessionId: string; isWorking: boolean }) => {
       setSessionWorkingMap(prev => ({ ...prev, [sessionId]: isWorking }));
+      if (!isWorking) {
+        setSessionStatusMap(prev => ({ ...prev, [sessionId]: '' }));
+      }
+      if (sessionId === activeSessionIdRef.current) {
+        setIsTyping(isWorking);
+        if (!isWorking) setCurrentStatus('');
+      }
     });
 
     newSocket.on('active_session_runs', (runs: string[]) => {
       const map: Record<string, boolean> = {};
       runs.forEach(id => { map[id] = true; });
       setSessionWorkingMap(map);
+      if (!map[activeSessionIdRef.current]) {
+        setIsTyping(false);
+        setCurrentStatus('');
+      }
     });
 
     newSocket.on('agent_message', (data: { sessionId?: string; agentId: string; content: string; image?: string; images?: string[]; usage?: any; isTool?: boolean; isError?: boolean; steps?: any[] }) => {
@@ -418,20 +429,20 @@ export default function App() {
     });
 
     newSocket.on('agent_status', (data: { sessionId?: string; agentId: string; status: 'idle' | 'working', message?: string; toolName?: string }) => {
-      if (data.sessionId && data.sessionId !== activeSessionIdRef.current) return;
-      const targetSession = data.sessionId || activeSessionIdRef.current;
-      if (targetSession) {
-        setSessionWorkingMap(prev => ({ ...prev, [targetSession]: data.status === 'working' }));
-        setSessionStatusMap(prev => ({ ...prev, [targetSession]: data.status === 'idle' ? '' : (data.message || '') }));
+      if (data.sessionId) {
+        setSessionWorkingMap(prev => ({ ...prev, [data.sessionId!]: data.status === 'working' }));
+        setSessionStatusMap(prev => ({ ...prev, [data.sessionId!]: data.status === 'idle' ? '' : (data.message || '') }));
       }
 
-      if (data.agentId === 'orchestrator' || !data.agentId) {
-        if (targetSession === activeSessionIdRef.current) {
+      // Only update active UI (isTyping, currentStatus) if event belongs to current active session
+      if (data.sessionId === activeSessionIdRef.current || (!data.sessionId && !activeSessionIdRef.current)) {
+        if (data.agentId === 'orchestrator' || !data.agentId) {
           setIsTyping(data.status === 'working');
           if (data.status === 'idle') setCurrentStatus('');
           else if (data.message) setCurrentStatus(data.message);
         }
       }
+
       setActiveAgents((prev) => {
         const found = prev.find(a => a.id === data.agentId);
         if (found) {
@@ -627,6 +638,10 @@ export default function App() {
       setSessionTitle(session.title);
       setSubagentsUsed(session.subagentsUsed || []);
       setCurrentStatus('');
+      setIsTyping(false);
+      setSessionWorkingMap(prev => ({ ...prev, [session.id]: false }));
+      setSessionStatusMap(prev => ({ ...prev, [session.id]: '' }));
+      setSessionTaskSteps(prev => ({ ...prev, [session.id]: [] }));
       setMessages([
         {
           id: '1',
@@ -641,6 +656,7 @@ export default function App() {
       setSessionTitle(session?.title || '');
       setSubagentsUsed(session?.subagentsUsed || []);
       setCurrentStatus(sessionStatusMap[sessionId] || '');
+      setIsTyping(Boolean(sessionWorkingMap[sessionId]));
       if (session?.channel) setActiveChannel(session.channel);
       if (session?.targetAgent && session.targetAgent !== 'orchestrator') {
         setSelectedAgentId(session.targetAgent);
@@ -663,8 +679,10 @@ export default function App() {
         // Cap at 2000 entries to prevent memory bloat; oldest are trimmed first
         return next.length > 2000 ? next.slice(next.length - 2000) : next;
       });
-      if (data.agentId === 'orchestrator') {
+      // ONLY update currentStatus if this log is for the CURRENT active session
+      if (data.agentId === 'orchestrator' && data.sessionId && data.sessionId === activeSessionIdRef.current) {
         setCurrentStatus(data.message);
+        setSessionStatusMap(prev => ({ ...prev, [data.sessionId!]: data.message }));
       }
     });
 
@@ -1182,7 +1200,8 @@ export default function App() {
           }}
           workingAgentsCount={(trackerData.agents || []).filter(a => a.status === 'working' || a.status === 'waiting_approval').length}
           pendingApprovalsCount={(trackerData.pendingApprovals || []).filter(a => a.status === 'pending').length}
-          currentStatus={sessionStatusMap[activeSessionId] || currentStatus}
+          currentStatus={sessionStatusMap[activeSessionId] || ''}
+          isCurrentSessionWorking={Boolean(sessionWorkingMap[activeSessionId])}
           handleStop={() => handleStop(activeSessionId)}
           onOpenSettings={() => setShowSettingsModal(true)}
         />
@@ -1199,9 +1218,10 @@ export default function App() {
               messages={messages}
               activeAgents={activeAgents}
               logs={logs}
-              currentStatus={sessionStatusMap[activeSessionId] || currentStatus}
+              currentStatus={sessionStatusMap[activeSessionId] || ''}
               taskSteps={sessionTaskSteps[activeSessionId] || []}
               isCurrentSessionWorking={Boolean(sessionWorkingMap[activeSessionId])}
+              activeSessionId={activeSessionId}
               setEnlargedImage={setEnlargedImage}
               messagesEndRef={messagesEndRef}
               handleStop={() => handleStop(activeSessionId)}
@@ -1233,7 +1253,9 @@ export default function App() {
               fileInputRef={fileInputRef}
               handleImageUpload={handleImageUpload}
               activeAgents={activeAgents}
-              handleStop={handleStop}
+              handleStop={() => handleStop(activeSessionId)}
+              isCurrentSessionWorking={Boolean(sessionWorkingMap[activeSessionId])}
+              activeSessionId={activeSessionId}
               selectedImages={selectedImages}
               removeImage={removeImage}
               currentContextTokens={currentContextTokens}

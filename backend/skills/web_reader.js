@@ -181,7 +181,49 @@ export async function execute(args) {
     console.warn('[web_reader] Wayback archive error:', wbErr.message);
   }
 
-  // 5. Try Smart News Search / Syndication Synthesis (Tavily) for hard paywalls
+  // 5. Try Smart News Search / Syndication Synthesis (Parallel) for hard paywalls
+  if (process.env.PARALLEL_API_KEY) {
+    try {
+      const urlSlug = url.split('/').pop().replace(/[_\W]+/g, ' ').trim();
+      const domain = new URL(url).hostname.replace(/^www\./, '');
+      const searchQuery = `"${url}" OR ("${urlSlug}" ${domain} full article reporting)`;
+
+      const searchRes = await fetch('https://api.parallel.ai/v1/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.PARALLEL_API_KEY
+        },
+        body: JSON.stringify({
+          objective: searchQuery,
+          search_queries: [searchQuery],
+          advanced_settings: {
+            max_results: 5,
+            excerpt_settings: { max_chars_per_result: 10000 }
+          }
+        })
+      });
+
+      if (searchRes.ok) {
+        const data = await searchRes.json();
+        if (data.results && data.results.length > 0) {
+          const formattedResults = data.results.map((r, idx) => {
+            const content = Array.isArray(r.excerpts) ? r.excerpts.join('\n\n') : '';
+            return `### [${idx + 1}] ${r.title || 'Result'}\nSource: ${r.url || ''}\n\n${content}`;
+          }).join('\n\n---\n\n');
+          return {
+            source: 'news_search_synthesis_parallel',
+            url,
+            content: `# Article & Reporting Context for: ${url}\n\n${formattedResults}`.slice(0, maxLength)
+          };
+        }
+      }
+    } catch (parallelErr) {
+      console.warn('[web_reader] Parallel fallback error:', parallelErr.message);
+    }
+  }
+
+  // 6. Try Smart News Search / Syndication Synthesis (Tavily) for hard paywalls
   if (process.env.TAVILY_API_KEY) {
     try {
       const { tavily } = await import('@tavily/core');

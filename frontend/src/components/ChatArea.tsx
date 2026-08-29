@@ -22,6 +22,7 @@ type ChatAreaProps = {
   subagentsUsed?: string[];
   onOpenLogs?: () => void;
   isCurrentSessionWorking?: boolean;
+  activeSessionId?: string;
 };
 
 function consolidateArticleBlocks(content: string): string {
@@ -171,9 +172,29 @@ export function ChatArea({
   subagentsUsed = [],
   onOpenLogs,
   isCurrentSessionWorking = false,
+  activeSessionId,
 }: ChatAreaProps) {
   const selectedAgent = activeAgents.find(a => a.id === selectedAgentId);
-  const workingAgents = activeAgents.filter(a => a.status === 'working');
+
+  // Filter telemetry logs strictly to this active session or global system logs
+  const sessionLogs = useMemo(() => {
+    return logs.filter(l => !l.sessionId || l.sessionId === activeSessionId);
+  }, [logs, activeSessionId]);
+
+  // Only consider agents working if THIS session is actively working or running steps
+  const workingAgents = useMemo(() => {
+    if (!isCurrentSessionWorking && !taskSteps.some(s => s.status === 'running')) {
+      return [];
+    }
+    const targetAgentId = selectedAgentId || 'orchestrator';
+    const primaryAgent = activeAgents.find(a => a.id === targetAgentId) || {
+      id: targetAgentId,
+      name: targetAgentId === 'orchestrator' ? 'Orchestrator' : targetAgentId,
+      role: targetAgentId === 'orchestrator' ? 'Main Controller' : 'Agent',
+      status: 'working'
+    };
+    return [primaryAgent];
+  }, [isCurrentSessionWorking, taskSteps, selectedAgentId, activeAgents]);
 
   const markdownComponents = useMemo(() => ({
     p: ({ children }: any) => (
@@ -408,7 +429,7 @@ export function ChatArea({
           key={`exec-${agent.id}`} 
           agent={agent} 
           currentStatus={currentStatus} 
-          logs={logs}
+          logs={sessionLogs}
           steps={taskSteps}
           handleStop={handleStop}
           onOpenLogs={onOpenLogs}

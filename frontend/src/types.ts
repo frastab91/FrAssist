@@ -32,6 +32,7 @@ export type LogEvent = {
   id: string;
   timestamp: string;
   agentId: string;
+  sessionId?: string;
   type: string;
   level: string;
   message: string;

@@ -49,6 +49,7 @@ type HeaderProps = {
   workingAgentsCount: number;
   pendingApprovalsCount: number;
   currentStatus?: string;
+  isCurrentSessionWorking?: boolean;
   handleStop?: () => void;
   onOpenSettings?: () => void;
 };
@@ -78,9 +79,10 @@ export function Header({
   onOpenWhatsApp,
   whatsappConnected,
   onOpenMissionControl,
-  workingAgentsCount,
+  workingAgentsCount: _workingAgentsCount,
   pendingApprovalsCount,
   currentStatus = '',
+  isCurrentSessionWorking = false,
   handleStop,
   onOpenSettings,
 }: HeaderProps) {
@@ -134,8 +136,8 @@ export function Header({
           )}
         </button>
 
-        {/* Live Running Task Pill in Header */}
-        {workingAgentsCount > 0 && (
+        {/* Live Running Task Pill in Header (only when THIS active session is working) */}
+        {isCurrentSessionWorking && (
           <div className="header-task-pill" title="Current Activity">
             <span className="header-task-dot" />
             <span className="header-task-title">

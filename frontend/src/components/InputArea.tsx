@@ -27,6 +27,8 @@ type InputAreaProps = {
   removeImage: (idx: number) => void;
   currentContextTokens: number;
   logs: LogEvent[];
+  isCurrentSessionWorking?: boolean;
+  activeSessionId?: string;
 };
 
 export function InputArea({
@@ -56,8 +58,11 @@ export function InputArea({
   currentContextTokens,
   logs,
   selectedAgentId,
+  isCurrentSessionWorking = false,
+  activeSessionId,
 }: InputAreaProps & { selectedAgentId: string | null }) {
   const activeAgent = activeAgents.find(a => a.id === selectedAgentId);
+  const sessionLogs = logs.filter(l => !l.sessionId || l.sessionId === activeSessionId);
 
   return (
     <div
@@ -236,7 +241,7 @@ export function InputArea({
           >
             <ImageIcon size={20} />
           </button>
-          {activeAgents.some(a => a.status === 'working') ? (
+          {isCurrentSessionWorking ? (
             <button
               type="button"
               onClick={handleStop}
@@ -273,8 +278,8 @@ export function InputArea({
         </div>
       )}
 
-      {/* Log Stream Area */}
-      {logs.length > 0 && activeAgents.some(a => a.status === 'working') && (
+      {/* Log Stream Area (strictly scoped to this working session) */}
+      {isCurrentSessionWorking && sessionLogs.length > 0 && (
         <div style={{ 
           margin: '0.5rem 1rem 0',
           padding: '0.5rem',
@@ -290,10 +295,10 @@ export function InputArea({
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem', borderBottom: '1px solid #334155', paddingBottom: '0.25rem', color: '#94a3b8', fontSize: '0.6rem', fontWeight: 600, textTransform: 'uppercase' }}>
              <Terminal size={10} /> Live Log Stream
           </div>
-          {logs.slice(-5).map((log, i) => (
+          {sessionLogs.slice(-5).map((log, i) => (
             <div key={log.id} style={{ 
               marginBottom: '2px', 
-              opacity: i === 4 ? 1 : 0.6,
+              opacity: i === sessionLogs.slice(-5).length - 1 ? 1 : 0.6,
               display: 'flex',
               gap: '0.5rem'
             }}>

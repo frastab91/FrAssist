@@ -1147,7 +1147,7 @@ WORKFLOW: 1. open -> 2. snapshot (to read refs) -> 3. screenshot (to show user).
         },
         {
           name: 'web_search',
-          description: 'Search the live web for current information using Tavily.',
+          description: 'Search the live web for current information. USE THIS STRICTLY FOR SEARCH ONLY. Do NOT use this when browsing, navigating, or interacting with specific sites/apps is needed (for that, you MUST use ego-lite via browser_control).',
           parameters: {
             type: 'OBJECT',
             properties: {
@@ -1789,6 +1789,42 @@ async function executeTool(call, socket, sessionId = 'session_default') {
       }
     }
     if (name === 'web_search') {
+      if (process.env.PARALLEL_API_KEY) {
+        try {
+          const res = await fetch('https://api.parallel.ai/v1/search', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': process.env.PARALLEL_API_KEY
+            },
+            body: JSON.stringify({
+              objective: args.query,
+              search_queries: [args.query],
+              advanced_settings: {
+                max_results: 5,
+                excerpt_settings: {
+                  max_chars_per_result: 10000
+                }
+              }
+            })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.results && data.results.length > 0) {
+              return {
+                results: data.results.map(r => ({
+                  title: r.title || 'Parallel Search Result',
+                  url: r.url || '',
+                  content: Array.isArray(r.excerpts) ? r.excerpts.join('\n\n') : ''
+                }))
+              };
+            }
+          }
+        } catch (parallelErr) {
+          console.warn('[Web Search] Parallel search error, attempting Tavily fallback:', parallelErr.message);
+        }
+      }
+
       if (tvly) {
         try {
           const result = await tvly.search(args.query, { searchDepth: 'advanced', maxResults: 5 });
@@ -2087,7 +2123,12 @@ class Agent {
     if (userMessage.trim() === '/compress') {
       await compressSession(socket, this.id);
       activeSessionRuns.delete(sessionId);
-      if (socket) socket.emit('agent_status', { sessionId, agentId: this.id, status: 'idle' });
+      if (typeof io !== 'undefined') {
+        io.emit('agent_status', { sessionId, agentId: this.id, status: 'idle' });
+        io.emit('session_working_status', { sessionId, isWorking: false });
+      } else if (socket) {
+        socket.emit('agent_status', { sessionId, agentId: this.id, status: 'idle' });
+      }
       return;
     }
 
@@ -2098,7 +2139,11 @@ class Agent {
 
       const targetSession = sessionId || 'session_default';
       sendLog(socket, this.id, 'system', `🚀 Starting Facebook Hosts Outreach task (Target: max ${maxPosts} offering posts, mode: ${isDryRun ? 'DRY-RUN' : 'LIVE'})...`, null, 'info', targetSession);
-      if (socket) socket.emit('agent_status', { sessionId: targetSession, agentId: this.id, status: 'working', message: 'Scanning Facebook group for host offerings...' });
+      if (typeof io !== 'undefined') {
+        io.emit('agent_status', { sessionId: targetSession, agentId: this.id, status: 'working', message: 'Scanning Facebook group for host offerings...' });
+      } else if (socket) {
+        socket.emit('agent_status', { sessionId: targetSession, agentId: this.id, status: 'working', message: 'Scanning Facebook group for host offerings...' });
+      }
 
       const skill = dynamicSkills.get('fb_hosts_outreach');
       if (skill) {
@@ -2119,7 +2164,15 @@ class Agent {
             is_tool: false
           });
 
-          if (socket) {
+          if (typeof io !== 'undefined') {
+            io.emit('agent_message', {
+              sessionId: targetSession,
+              agentId: this.id,
+              content: result.summary,
+              isTool: false
+            });
+            io.emit('agent_status', { sessionId: targetSession, agentId: this.id, status: 'idle' });
+          } else if (socket) {
             socket.emit('agent_message', {
               sessionId: targetSession,
               agentId: this.id,
@@ -2131,7 +2184,15 @@ class Agent {
         } catch (e) {
           const errorMsg = `❌ Facebook outreach error: ${e.message}`;
           sendLog(socket, this.id, 'error', errorMsg, null, 'error', targetSession);
-          if (socket) {
+          if (typeof io !== 'undefined') {
+            io.emit('agent_message', {
+              sessionId: targetSession,
+              agentId: this.id,
+              content: errorMsg,
+              isTool: true
+            });
+            io.emit('agent_status', { sessionId: targetSession, agentId: this.id, status: 'idle' });
+          } else if (socket) {
             socket.emit('agent_message', {
               sessionId: targetSession,
               agentId: this.id,
@@ -2143,22 +2204,36 @@ class Agent {
         }
       } else {
         const errorMsg = `❌ fb_hosts_outreach skill not found.`;
-        if (socket) socket.emit('agent_message', { sessionId: targetSession, agentId: this.id, content: errorMsg, isTool: true });
+        if (typeof io !== 'undefined') {
+          io.emit('agent_message', { sessionId: targetSession, agentId: this.id, content: errorMsg, isTool: true });
+          io.emit('agent_status', { sessionId: targetSession, agentId: this.id, status: 'idle' });
+        } else if (socket) {
+          socket.emit('agent_message', { sessionId: targetSession, agentId: this.id, content: errorMsg, isTool: true });
+          socket.emit('agent_status', { sessionId: targetSession, agentId: this.id, status: 'idle' });
+        }
       }
 
       activeSessionRuns.delete(sessionId);
+      if (typeof io !== 'undefined') {
+        io.emit('session_working_status', { sessionId, isWorking: false });
+      }
       this.processing = false;
       return;
     }
 
     if (userMessage.trim() === '/help') {
-      if (socket) {
-        socket.emit('agent_message', {
-          sessionId,
-          agentId: this.id,
-          content: `### 🛠️ Available Slash Commands\n\n- \`/hosts [count]\`: Scan FB Digital Nomad housing group & comment on host offerings to promote https://host.frastab.com/\n- \`/compress\`: Compress session history & prune bloated context\n- \`/new\`: Analyze session and reset workspace\n- \`/stop\`: Stop current generation immediately\n- \`/learn\`: Extract insights and architectural proposals\n- \`/ego <prompt>\`: Execute autonomous web task in Ego Lite browser\n- \`/help\`: Show available commands`,
-          isTool: true
-        });
+      const helpMsg = {
+        sessionId,
+        agentId: this.id,
+        content: `### 🛠️ Available Slash Commands\n\n- \`/hosts [count]\`: Scan FB Digital Nomad housing group & comment on host offerings to promote https://host.frastab.com/\n- \`/compress\`: Compress session history & prune bloated context\n- \`/new\`: Analyze session and reset workspace\n- \`/stop\`: Stop current generation immediately\n- \`/learn\`: Extract insights and architectural proposals\n- \`/ego <prompt>\`: Execute autonomous web task in Ego Lite browser\n- \`/help\`: Show available commands`,
+        isTool: true
+      };
+      if (typeof io !== 'undefined') {
+        io.emit('agent_message', helpMsg);
+        io.emit('agent_status', { sessionId, agentId: this.id, status: 'idle' });
+        io.emit('session_working_status', { sessionId, isWorking: false });
+      } else if (socket) {
+        socket.emit('agent_message', helpMsg);
         socket.emit('agent_status', { sessionId, agentId: this.id, status: 'idle' });
       }
       activeSessionRuns.delete(sessionId);
@@ -2688,7 +2763,7 @@ ${taskContent}
           // Tier 1 Fallback: If custom router returns 404 (e.g. prompt out of domain), fallback to router:general
           if (!doRes.ok && doRes.status === 404 && targetModel !== 'router:general') {
             console.warn(`[DigitalOcean] Model ${targetModel} returned 404. Falling back to router:general...`);
-            if (socket) sendLog(socket, this.id, 'system', `DO Router "${targetModel}" not matched. Failing over to router:general`);
+            if (socket) sendLog(socket, this.id, 'system', `DO Router "${targetModel}" not matched. Failing over to router:general`, null, 'warning', sessionId);
             doPayload.model = 'router:general';
             doRes = await fetch(process.env.DO_INFERENCE_URL || 'https://inference.do-ai.run/v1/chat/completions', {
               method: 'POST',
@@ -2704,7 +2779,7 @@ ${taskContent}
           // Tier 2 Fallback: If router:general returns 404 or error, fallback to direct direct model openai-gpt-oss-120b
           if (!doRes.ok && doPayload.model !== 'openai-gpt-oss-120b') {
             console.warn(`[DigitalOcean] Router returned ${doRes.status}. Falling back to openai-gpt-oss-120b...`);
-            if (socket) sendLog(socket, this.id, 'system', `Failing over to DO openai-gpt-oss-120b`);
+            if (socket) sendLog(socket, this.id, 'system', `Failing over to DO openai-gpt-oss-120b`, null, 'warning', sessionId);
             doPayload.model = 'openai-gpt-oss-120b';
             if (agentTools.length > 0) doPayload.tools = agentTools;
             doRes = await fetch(process.env.DO_INFERENCE_URL || 'https://inference.do-ai.run/v1/chat/completions', {
@@ -2729,7 +2804,7 @@ ${taskContent}
           const upstreamTime = doRes.headers.get('do-upstream-service-time');
 
           if (socket) {
-            sendLog(socket, this.id, 'system', `⚡ DigitalOcean served by: ${servedModel}${selectedRoute ? ` [Route: ${selectedRoute}]` : ''}${upstreamTime ? ` (${upstreamTime}ms)` : ''}`);
+            sendLog(socket, this.id, 'system', `⚡ DigitalOcean served by: ${servedModel}${selectedRoute ? ` [Route: ${selectedRoute}]` : ''}${upstreamTime ? ` (${upstreamTime}ms)` : ''}`, null, 'info', sessionId);
           }
 
           const choice = doData.choices?.[0]?.message;
@@ -2748,7 +2823,7 @@ ${taskContent}
               functionCalls = extracted.toolCalls;
               rawText = extracted.cleanText;
               console.log(`[DigitalOcean Text Tool Calls Extracted] Found ${functionCalls.length} tool(s):`, functionCalls.map(f => f.name));
-              if (socket) sendLog(socket, this.id, 'system', `⚡ Extracted tool call: ${functionCalls.map(f => f.name).join(', ')}`);
+              if (socket) sendLog(socket, this.id, 'system', `⚡ Extracted tool call: ${functionCalls.map(f => f.name).join(', ')}`, null, 'info', sessionId);
             }
           }
 
@@ -2949,12 +3024,22 @@ ${taskContent}
             }
           }));
 
+          if (typeof io !== 'undefined') {
+            io.emit('agent_status', { sessionId, agentId: this.id, status: 'working', message: `Thinking with Ollama Cloud (${ollamaModel})...` });
+          } else if (socket) {
+            socket.emit('agent_status', { sessionId, agentId: this.id, status: 'working', message: `Thinking with Ollama Cloud (${ollamaModel})...` });
+          }
           if (socket) {
-            sendLog(socket, this.id, 'api_request', `Ollama Cloud Request: ${ollamaModel} (${ollamaMessages.length} messages)`);
-            socket.emit('agent_status', { agentId: this.id, status: 'working', message: `Thinking with Ollama Cloud (${ollamaModel})...` });
+            sendLog(socket, this.id, 'api_request', `Ollama Cloud Request: ${ollamaModel} (${ollamaMessages.length} messages)`, null, 'info', sessionId);
           }
           
+          if (sessionAbort.signal.aborted || this.shouldStop) {
+            throw new Error('Ollama Cloud request cancelled or timed out');
+          }
+
           this.abortController = new AbortController();
+          const abortListener = () => this.abortController?.abort();
+          sessionAbort.signal.addEventListener('abort', abortListener, { once: true });
           const timeoutId = setTimeout(() => this.abortController?.abort(), 300000);
           const activityInterval = setInterval(() => {
             this.lastActivity = Date.now();
@@ -2978,18 +3063,19 @@ ${taskContent}
               onFailover: (info) => {
                 console.warn(`[Ollama Cloud] Primary API key failed (${info.status}). Automatically failing over to backup key (OLLAMA_API_KEY_2)...`);
                 if (socket) {
-                  sendLog(socket, this.id, 'system', `⚠️ Primary Ollama Cloud key limit/error reached (${info.status || 'quota'}). Switched over to backup key (OLLAMA_API_KEY_2)!`);
+                  sendLog(socket, this.id, 'system', `⚠️ Primary Ollama Cloud key limit/error reached (${info.status || 'quota'}). Switched over to backup key (OLLAMA_API_KEY_2)!`, null, 'warning', sessionId);
                 }
               }
             });
           } catch (err) {
-            if (this.shouldStop || err.name === 'AbortError') {
+            if (this.shouldStop || err.name === 'AbortError' || sessionAbort.signal.aborted) {
               throw new Error('Ollama Cloud request cancelled or timed out');
             }
             throw err;
           } finally {
             clearTimeout(timeoutId);
             clearInterval(activityInterval);
+            sessionAbort.signal.removeEventListener('abort', abortListener);
           }
           
           const result = await res.json();
@@ -3137,12 +3223,22 @@ ${taskContent}
             }
           }));
 
+          if (typeof io !== 'undefined') {
+            io.emit('agent_status', { sessionId, agentId: this.id, status: 'working', message: `Thinking with Ollama (${ollamaModel})...` });
+          } else if (socket) {
+            socket.emit('agent_status', { sessionId, agentId: this.id, status: 'working', message: `Thinking with Ollama (${ollamaModel})...` });
+          }
           if (socket) {
-            sendLog(socket, this.id, 'api_request', `Ollama Request: ${ollamaModel} (${ollamaMessages.length} messages)`);
-            socket.emit('agent_status', { agentId: this.id, status: 'working', message: `Thinking with Ollama (${ollamaModel})...` });
+            sendLog(socket, this.id, 'api_request', `Ollama Request: ${ollamaModel} (${ollamaMessages.length} messages)`, null, 'info', sessionId);
           }
           
+          if (sessionAbort.signal.aborted || this.shouldStop) {
+            throw new Error('Ollama request cancelled or timed out');
+          }
+
           this.abortController = new AbortController();
+          const abortListener = () => this.abortController?.abort();
+          sessionAbort.signal.addEventListener('abort', abortListener, { once: true });
           const timeoutId = setTimeout(() => this.abortController?.abort(), 300000); // 300s timeout (allows model load + long generation)
           const activityInterval = setInterval(() => {
             this.lastActivity = Date.now();
@@ -3162,7 +3258,7 @@ ${taskContent}
               signal: this.abortController.signal
             });
           } catch (err) {
-            if (this.shouldStop || err.name === 'AbortError') {
+            if (this.shouldStop || err.name === 'AbortError' || sessionAbort.signal.aborted) {
               throw new Error('Ollama request cancelled or timed out');
             }
             if (err.cause?.code === 'ECONNREFUSED' || err.message?.includes('fetch failed')) {
@@ -3172,6 +3268,7 @@ ${taskContent}
           } finally {
             clearTimeout(timeoutId);
             clearInterval(activityInterval);
+            sessionAbort.signal.removeEventListener('abort', abortListener);
           }
 
           if (!res.ok) {
@@ -4506,7 +4603,12 @@ io.on('connection', (socket) => {
       const targetSession = targetSessionId || 'session_default';
 
       sendLog(socket, 'orchestrator', 'system', `🚀 Starting Facebook Hosts Outreach task (Target: max ${maxPosts} offering posts, mode: ${isDryRun ? 'DRY-RUN' : 'LIVE'})...`, null, 'info', targetSession);
-      socket.emit('agent_status', { sessionId: targetSession, agentId: 'orchestrator', status: 'working', message: 'Scanning Facebook group for host offerings...' });
+      if (typeof io !== 'undefined') {
+        io.emit('agent_status', { sessionId: targetSession, agentId: 'orchestrator', status: 'working', message: 'Scanning Facebook group for host offerings...' });
+        io.emit('session_working_status', { sessionId: targetSession, isWorking: true });
+      } else {
+        socket.emit('agent_status', { sessionId: targetSession, agentId: 'orchestrator', status: 'working', message: 'Scanning Facebook group for host offerings...' });
+      }
 
       const skill = dynamicSkills.get('fb_hosts_outreach');
       if (skill) {
@@ -4527,27 +4629,55 @@ io.on('connection', (socket) => {
             is_tool: false
           });
 
-          socket.emit('agent_message', {
-            sessionId: targetSession,
-            agentId: 'orchestrator',
-            content: result.summary,
-            isTool: false
-          });
-          socket.emit('agent_status', { sessionId: targetSession, agentId: 'orchestrator', status: 'idle' });
+          if (typeof io !== 'undefined') {
+            io.emit('agent_message', {
+              sessionId: targetSession,
+              agentId: 'orchestrator',
+              content: result.summary,
+              isTool: false
+            });
+            io.emit('agent_status', { sessionId: targetSession, agentId: 'orchestrator', status: 'idle' });
+            io.emit('session_working_status', { sessionId: targetSession, isWorking: false });
+          } else {
+            socket.emit('agent_message', {
+              sessionId: targetSession,
+              agentId: 'orchestrator',
+              content: result.summary,
+              isTool: false
+            });
+            socket.emit('agent_status', { sessionId: targetSession, agentId: 'orchestrator', status: 'idle' });
+          }
         } catch (e) {
           const errorMsg = `❌ Facebook outreach error: ${e.message}`;
           sendLog(socket, 'orchestrator', 'error', errorMsg, null, 'error', targetSession);
-          socket.emit('agent_message', {
-            sessionId: targetSession,
-            agentId: 'orchestrator',
-            content: errorMsg,
-            isTool: true
-          });
-          socket.emit('agent_status', { sessionId: targetSession, agentId: 'orchestrator', status: 'idle' });
+          if (typeof io !== 'undefined') {
+            io.emit('agent_message', {
+              sessionId: targetSession,
+              agentId: 'orchestrator',
+              content: errorMsg,
+              isTool: true
+            });
+            io.emit('agent_status', { sessionId: targetSession, agentId: 'orchestrator', status: 'idle' });
+            io.emit('session_working_status', { sessionId: targetSession, isWorking: false });
+          } else {
+            socket.emit('agent_message', {
+              sessionId: targetSession,
+              agentId: 'orchestrator',
+              content: errorMsg,
+              isTool: true
+            });
+            socket.emit('agent_status', { sessionId: targetSession, agentId: 'orchestrator', status: 'idle' });
+          }
         }
       } else {
-        socket.emit('agent_message', { sessionId: targetSession, agentId: 'orchestrator', content: `❌ fb_hosts_outreach skill not found.`, isTool: true });
-        socket.emit('agent_status', { sessionId: targetSession, agentId: 'orchestrator', status: 'idle' });
+        if (typeof io !== 'undefined') {
+          io.emit('agent_message', { sessionId: targetSession, agentId: 'orchestrator', content: `❌ fb_hosts_outreach skill not found.`, isTool: true });
+          io.emit('agent_status', { sessionId: targetSession, agentId: 'orchestrator', status: 'idle' });
+          io.emit('session_working_status', { sessionId: targetSession, isWorking: false });
+        } else {
+          socket.emit('agent_message', { sessionId: targetSession, agentId: 'orchestrator', content: `❌ fb_hosts_outreach skill not found.`, isTool: true });
+          socket.emit('agent_status', { sessionId: targetSession, agentId: 'orchestrator', status: 'idle' });
+        }
       }
       return;
     }
