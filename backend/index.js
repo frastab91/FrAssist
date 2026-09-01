@@ -28,20 +28,53 @@ import { BrowserManager } from './skills/utils/browser_manager.js';
 import { EgoAdapter } from './skills/utils/ego_adapter.js';
 import { recordTokenUsage, estimateTokens, setTokenTrackerIO, setTokenTrackerDb } from './services/tokenTracker.js';
 import { fetchOllamaCloudWithFailover, fetchOllamaCloudModels, testOllamaCloudInference } from './services/ollama_client.js';
+import { generateGeminiContent, testGeminiInference, hasGeminiKey, GEMINI_MODELS } from './services/geminiService.js';
 import { routeTask, getRouterConfig, updateRouterConfig, resetRouterConfig, setRouterDb, getFriendlyModelName } from './services/modelRouter.js';
 
 let dbPromise = null;
 const dynamicSkills = new Map();
 const availableAgents = new Map();
-let projectData = { activeProjectId: 'default', projects: [] };
+let projectData = { projects: [] };
 const activeAgents = new Map([['orchestrator', { id: 'orchestrator', name: 'Orchestrator', role: 'Main Controller', status: 'idle' }]]);
 const agentInstances = new Map();
+
+export function getProjectSupabaseCredentials(projectId) {
+  const normId = (projectId || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  
+  if (normId.includes('rally')) {
+    return {
+      id: 'rally-nyc',
+      title: 'Rally NYC',
+      url: process.env.SUPABASE_URL_RALLY_NYC || '',
+      key: process.env.SUPABASE_SERVICE_ROLE_KEY_RALLY_NYC || process.env.SUPABASE_KEY_RALLY_NYC || process.env.SUPABASE_ANON_KEY_RALLY_NYC || ''
+    };
+  }
+  if (normId.includes('overnight') || normId.includes('wanderisco')) {
+    return {
+      id: 'overnight',
+      title: 'Overnight / Wanderisco',
+      url: process.env.SUPABASE_URL_OVERNIGHT || '',
+      key: process.env.SUPABASE_SERVICE_ROLE_KEY_OVERNIGHT || process.env.SUPABASE_KEY_OVERNIGHT || process.env.SUPABASE_ANON_KEY_OVERNIGHT || ''
+    };
+  }
+  // Default to Scalea / Tra-Montiemare
+  return {
+    id: 'tra-montiemare',
+    title: 'Tra-Montiemare (Scalea Vacation Rental)',
+    url: process.env.SUPABASE_URL_TRAMONTIEMARE || process.env.SUPABASE_URL || '',
+    key: process.env.SUPABASE_SERVICE_ROLE_KEY_TRAMONTIEMARE || process.env.SUPABASE_KEY_TRAMONTIEMARE || process.env.SUPABASE_KEY || ''
+  };
+}
 
 function loadProjects() {
   const projectsPath = path.join(process.cwd(), 'context', 'projects.json');
   if (fs.existsSync(projectsPath)) {
-    projectData = JSON.parse(fs.readFileSync(projectsPath, 'utf8'));
-    console.log(`Loaded ${projectData.projects.length} projects. Active: ${projectData.activeProjectId}`);
+    try {
+      projectData = JSON.parse(fs.readFileSync(projectsPath, 'utf8'));
+      console.log(`Loaded ${projectData.projects?.length || 0} projects from projects.json.`);
+    } catch (err) {
+      console.error('Error reading projects.json:', err);
+    }
   }
 }
 function saveProjects() {
@@ -80,6 +113,58 @@ function updateEnv(key, value) {
   fs.writeFileSync(envPath, lines.join('\n'));
   process.env[key] = value;
   console.log(`Updated .env: ${key} saved permanently.`);
+}
+
+function mergeEnvContent(existingContent, newContent) {
+  const existingLines = (existingContent || '').split('\n');
+  const newLines = (newContent || '').split('\n');
+  
+  const newKeyValues = new Map();
+  
+  for (const line of newLines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const match = line.match(/^(?:export\s+)?([A-Za-z0-9_]+)\s*=\s*(.*)$/);
+    if (match) {
+      newKeyValues.set(match[1], match[2]);
+    }
+  }
+
+  const updatedExistingKeys = new Set();
+  const resultLines = existingLines.map(line => {
+    const match = line.match(/^(?:export\s+)?([A-Za-z0-9_]+)\s*=\s*(.*)$/);
+    if (match) {
+      const key = match[1];
+      if (newKeyValues.has(key)) {
+        updatedExistingKeys.add(key);
+        const val = newKeyValues.get(key);
+        process.env[key] = val;
+        return `${key}=${val}`;
+      }
+    }
+    return line;
+  });
+
+  const appendedLines = [];
+  for (const [key, val] of newKeyValues.entries()) {
+    if (!updatedExistingKeys.has(key)) {
+      appendedLines.push(`${key}=${val}`);
+      process.env[key] = val;
+    }
+  }
+
+  if (appendedLines.length > 0) {
+    if (resultLines.length > 0 && resultLines[resultLines.length - 1].trim() !== '') {
+      resultLines.push('');
+    }
+    resultLines.push(...appendedLines);
+  }
+
+  return {
+    merged: resultLines.join('\n'),
+    updatedCount: updatedExistingKeys.size,
+    addedCount: appendedLines.length
+  };
 }
 
 
@@ -1062,13 +1147,13 @@ function getToolDeclarations() {
         },
         {
           name: 'edit_file',
-          description: 'Read or write a file. CRITICAL: You are the developer. If the user asks for code, do NOT provide a "blueprint" or "conceptual" response. You MUST use this tool to write the ACTUAL source code to disk. Never ask the user to save a file; always do it yourself. This tool is authorized for all files including index.js, system.md, and .env.',
+          description: 'Read, write, or append to a file. CRITICAL: You are the developer. If the user asks for code, do NOT provide a "blueprint" or "conceptual" response. You MUST use this tool to write the ACTUAL source code to disk. Never ask the user to save a file; always do it yourself. This tool is authorized for all files including index.js, system.md, and .env. (Note: Any writes or appends to .env automatically protect and merge existing environment variables so credentials and keys are never wiped).',
           parameters: {
             type: 'OBJECT',
             properties: {
-              action: { type: 'STRING', enum: ['read', 'write'], description: 'Action to perform' },
+              action: { type: 'STRING', enum: ['read', 'write', 'append'], description: 'Action to perform ("read", "write", or "append")' },
               path: { type: 'STRING', description: 'Relative path from project root or absolute path' },
-              content: { type: 'STRING', description: 'The entire file content to write. Ensure this is valid, functional code.' }
+              content: { type: 'STRING', description: 'The file content to write or append. Ensure this is valid, functional code.' }
             },
             required: ['action', 'path']
           }
@@ -1299,30 +1384,84 @@ async function executeTool(call, socket, sessionId = 'session_default') {
       });
     }
     if (name === 'edit_file') {
-      const filePath = path.isAbsolute(args.path) ? args.path : path.join(process.cwd(), args.path);
+      let rawPath = (args.path || '').trim();
+      let filePath = path.isAbsolute(rawPath) ? rawPath : path.join(process.cwd(), rawPath);
+
+      // Smart path resolution: check if rawPath points to a knowledge or context file without the prefix
+      if (!fs.existsSync(filePath)) {
+        const candidates = [
+          path.join(process.cwd(), 'knowledge', rawPath),
+          path.join(process.cwd(), 'backend', 'knowledge', rawPath),
+          path.join(process.cwd(), 'context', rawPath),
+          path.join(process.cwd(), 'context', 'projects', rawPath),
+          path.join(process.cwd(), 'backend', 'context', 'projects', rawPath)
+        ];
+        const found = candidates.find(c => fs.existsSync(c));
+        if (found) filePath = found;
+      }
+
       if (args.action === 'read') {
+        if (!fs.existsSync(filePath)) {
+          return { error: `File not found: ${args.path}. (Note: Knowledge files are stored under 'knowledge/<project_id>/<file>.md')` };
+        }
         const content = fs.readFileSync(filePath, 'utf-8');
-        return { content };
+        return { content, path: filePath };
       } else {
+        // If writing and file doesn't exist yet but user omitted 'knowledge/' prefix for known projects
+        if (!fs.existsSync(filePath) && !rawPath.startsWith('knowledge/') && !rawPath.startsWith('context/')) {
+          const knownProjects = ['tra-montiemare', 'rally_nyc', 'rally-nyc', 'overnight', 'general'];
+          if (knownProjects.some(p => rawPath.startsWith(p))) {
+            filePath = path.join(process.cwd(), 'knowledge', rawPath);
+          }
+        }
         // Ensure parent directory exists
         const dir = path.dirname(filePath);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         
+        const fileName = path.basename(filePath);
+        const isEnvFile = fileName === '.env' || fileName.startsWith('.env.') || fileName.endsWith('.env');
+
+        if (isEnvFile) {
+          let existing = '';
+          if (fs.existsSync(filePath)) {
+            existing = fs.readFileSync(filePath, 'utf-8');
+            try {
+              fs.writeFileSync(`${filePath}.bak`, existing);
+            } catch (err) {
+              console.error('Failed to create .env backup:', err);
+            }
+          }
+          const mergeResult = mergeEnvContent(existing, args.content || '');
+          fs.writeFileSync(filePath, mergeResult.merged);
+          return {
+            status: `File ${fileName} safely updated and merged (${mergeResult.updatedCount} updated, ${mergeResult.addedCount} added, all existing keys preserved). Backup saved to ${fileName}.bak.`,
+            path: filePath
+          };
+        }
+
+        if (args.action === 'append') {
+          if (fs.existsSync(filePath)) {
+            const existing = fs.readFileSync(filePath, 'utf-8');
+            const separator = existing.endsWith('\n') || !existing ? '' : '\n';
+            fs.writeFileSync(filePath, existing + separator + (args.content || ''));
+          } else {
+            fs.writeFileSync(filePath, args.content || '');
+          }
+          return { status: `File ${path.basename(filePath)} appended successfully.`, path: filePath };
+        }
+
         fs.writeFileSync(filePath, args.content || '');
-        return { status: `File ${path.basename(filePath)} written successfully.` };
+        return { status: `File ${path.basename(filePath)} written successfully.`, path: filePath };
       }
     }
     if (name === 'supabase_action') {
-      const targetProjectId = args.projectId || projectData.activeProjectId;
-      const activeProject = (targetProjectId ? projectData.projects.find(p => p.id === targetProjectId) : null) || projectData.projects.find(p => p.id === projectData.activeProjectId) || projectData.projects[0];
-      if (!activeProject) return { error: 'No active project configured.' };
+      const creds = getProjectSupabaseCredentials(args.projectId);
+      const supabaseUrl = (creds.url || '').replace(/\/+$/, '');
+      const apiKey = creds.key;
 
-      // Support multiple naming conventions for the service role key or API key
-      const apiKey = activeProject.supabaseServiceRoleKey || activeProject.supabaseKey || activeProject.supabaseAnonKey || process.env.SUPABASE_KEY;
-      const supabaseUrl = (activeProject.supabaseUrl || process.env.SUPABASE_URL || '').replace(/\/+$/, '');
-
-      if (!supabaseUrl) return { error: `No Supabase URL found for project: ${activeProject.title || activeProject.id}. Please ensure 'supabaseUrl' is defined.` };
-      if (!apiKey) return { error: `No Service Role Key found for project: ${activeProject.title || activeProject.id}. Please ensure 'supabaseServiceRoleKey' or 'supabaseKey' is defined.` };
+      if (!supabaseUrl || !apiKey) {
+        return { error: `No Supabase credentials configured in .env for project '${creds.id}'. Please check SUPABASE_URL_${creds.id.toUpperCase().replace(/[-/]/g, '_')}.` };
+      }
 
       const { createClient } = await import('@supabase/supabase-js');
       const supabase = createClient(supabaseUrl, apiKey);
@@ -1610,39 +1749,28 @@ async function executeTool(call, socket, sessionId = 'session_default') {
     }
 
     if (name === 'manage_projects') {
-      const { action, projectId, title, description, supabaseUrl, supabaseKey } = args;
+      const { action, projectId, title, description } = args;
       if (action === 'list') {
-        return { activeProjectId: projectData.activeProjectId, projects: projectData.projects };
+        return { projects: projectData.projects };
       }
       if (action === 'add') {
-        if (!projectId || !supabaseUrl || !supabaseKey) return { error: 'projectId, supabaseUrl, and supabaseKey are required' };
-        const newProject = { id: projectId, title: title || projectId, description: description || '', supabaseUrl, supabaseKey };
+        if (!projectId) return { error: 'projectId is required' };
+        const newProject = { id: projectId, title: title || projectId, description: description || '' };
         projectData.projects.push(newProject);
         saveProjects();
         return { status: 'Project added', projectId };
       }
-      if (action === 'select') {
-        if (!projectId) return { error: 'projectId is required' };
-        const project = projectData.projects.find(p => p.id === projectId);
-        if (!project) return { error: 'Project not found' };
-        projectData.activeProjectId = projectId;
-        saveProjects();
-        return { status: 'Active project switched', activeProjectId: projectId };
-      }
       if (action === 'delete') {
         if (!projectId) return { error: 'projectId is required' };
         projectData.projects = projectData.projects.filter(p => p.id !== projectId);
-        if (projectData.activeProjectId === projectId) projectData.activeProjectId = projectData.projects[0]?.id || '';
         saveProjects();
         return { status: 'Project deleted' };
       }
       if (action === 'sync_schema') {
-        const targetId = args.projectId || projectData.activeProjectId;
-        const proj = projectData.projects.find(p => p.id === targetId);
-        if (!proj) return { error: `Project '${targetId}' not found.` };
-        const apiKey = proj.supabaseServiceRoleKey || proj.supabaseKey || proj.supabaseAnonKey;
-        const supabaseUrl = (proj.supabaseUrl || '').replace(/\/+$/, '');
-        if (!supabaseUrl || !apiKey) return { error: 'supabaseUrl and a service role key are required on the project.' };
+        const creds = getProjectSupabaseCredentials(projectId || args.projectId);
+        const supabaseUrl = (creds.url || '').replace(/\/+$/, '');
+        const apiKey = creds.key;
+        if (!supabaseUrl || !apiKey) return { error: `Supabase credentials not found in .env for project '${creds.id}'.` };
 
         const { createClient } = await import('@supabase/supabase-js');
         const supabase = createClient(supabaseUrl, apiKey);
@@ -1691,8 +1819,20 @@ async function executeTool(call, socket, sessionId = 'session_default') {
           schemaMarkdown += `### \`${table}\`\n${cols.join('\n')}\n\n`;
         }
 
-        // Write/replace the Database Schema section in the project context file
-        const ctxPath = path.join(process.cwd(), 'context', `${targetId}_context.md`);
+        // Write schema to Tier 3 Knowledge file
+        try {
+          const knowledgeProjDir = path.join(process.cwd(), 'knowledge', targetId);
+          if (!fs.existsSync(knowledgeProjDir)) fs.mkdirSync(knowledgeProjDir, { recursive: true });
+          const schemaKnowledgePath = path.join(knowledgeProjDir, 'database_schema.md');
+          fs.writeFileSync(schemaKnowledgePath, `# ${proj.title || targetId}: Database Schema\n> Auto-synced ${now} from ${supabaseUrl}\n\n${schemaMarkdown}`);
+        } catch (e) {
+          console.error('[sync_schema] Error writing to knowledge directory:', e);
+        }
+
+        // Write/replace the Database Schema section in the project manifest/context file
+        const manifestPath = path.join(process.cwd(), 'context', 'projects', `${targetId}.md`);
+        const legacyCtxPath = path.join(process.cwd(), 'context', `${targetId}_context.md`);
+        const ctxPath = fs.existsSync(manifestPath) ? manifestPath : legacyCtxPath;
         let ctx = fs.existsSync(ctxPath) ? fs.readFileSync(ctxPath, 'utf8') : `# Project: ${proj.title} Context\n`;
         ctx = ctx.replace(/\n## Database Schema[\s\S]*?(?=\n## |\n# |$)/g, '').trimEnd();
         fs.writeFileSync(ctxPath, ctx + '\n\n' + schemaMarkdown);
@@ -2325,59 +2465,35 @@ class Agent {
       const agentsList = Array.from(availableAgents.values()).map(a => `- ${a.name}: ${a.description}`).join('\n');
       const toolNames = getToolDeclarations()[0].functionDeclarations.map(t => t.name);
       const toolsList = toolNames.map(name => `- ${name}`).join('\n');
-      const activeProject = projectData.projects.find(p => p.id === projectData.activeProjectId) || { title: 'None', description: '' };
       
-      // Load Project Context
-      let projectContext = '';
+      // Tier 1: Core Baseline Context (universal session rules)
+      let coreContext = '';
       try {
-        const projectContextPath = path.join(process.cwd(), 'context', `${projectData.activeProjectId}_context.md`);
-        if (fs.existsSync(projectContextPath)) {
-          projectContext = `\n\n# ACTIVE PROJECT CONTEXT\n${fs.readFileSync(projectContextPath, 'utf8')}`;
+        const corePath = path.join(process.cwd(), 'context', 'core.md');
+        const sysPath = path.join(process.cwd(), 'context', 'system.md');
+        if (fs.existsSync(corePath)) {
+          coreContext = `\n\n# CORE BASELINE CONTEXT\n${fs.readFileSync(corePath, 'utf8')}`;
+        } else if (fs.existsSync(sysPath)) {
+          coreContext = `\n\n# CORE BASELINE CONTEXT\n${fs.readFileSync(sysPath, 'utf8')}`;
         }
       } catch (e) {
-        console.error('Failed to load project context:', e);
+        console.error('Failed to load core context:', e);
       }
 
-      // Load Global Knowledge
-      let globalKnowledge = '';
-      try {
-        const knowledgeDir = path.join(process.cwd(), 'knowledge');
-        const contextDir = path.join(process.cwd(), 'context');
-        
-        let kFiles = [];
-        if (fs.existsSync(knowledgeDir)) {
-          kFiles = kFiles.concat(fs.readdirSync(knowledgeDir).filter(f => f.endsWith('.md')).map(f => path.join(knowledgeDir, f)));
-        }
-        if (fs.existsSync(contextDir)) {
-          // Include all .md files in context that are NOT specific project contexts already loaded
-          const cFiles = fs.readdirSync(contextDir)
-            .filter(f => f.endsWith('.md') && !f.includes('_context.md'))
-            .map(f => path.join(contextDir, f));
-          kFiles = kFiles.concat(cFiles);
-        }
-
-        if (kFiles.length > 0) {
-          globalKnowledge = '\n\n# GLOBAL KNOWLEDGE\n' + kFiles.map(f => {
-            const content = fs.readFileSync(f, 'utf8');
-            const name = path.basename(f, '.md');
-            return `## ${name}\n${content}`;
-          }).join('\n\n');
-        }
-      } catch (e) {
-        console.error('Failed to load global knowledge:', e);
-      }
+      // Tier 2: Static Multi-Project Portfolio Index (stable for 100% prompt caching)
+      const projectsIndex = (projectData.projects || []).map(p => `- **${p.id}** (${p.title}): ${p.description}`).join('\n');
+      const portfolioContext = projectsIndex ? `\n\n# MANAGED PROJECTS PORTFOLIO\n${projectsIndex}\n\n*Note: To inspect or fetch in-depth project documentation, check-in guides, local info, schemas, or growth plans, use the 'get_project_knowledge' tool.*` : '';
 
       // Static system prompt — stable across calls so Vertex AI implicit prompt caching can hit.
       // Date, time, and current task are intentionally excluded here.
-      const staticSystemPrompt = `Active Project: ${activeProject.title} (${activeProject.description})${projectContext}${globalKnowledge}\n\nAvailable Specialized Agents:\n${agentsList}\n\nAvailable Runtime Capabilities (${toolNames.length}):\n${toolsList}\n\nWhen the user asks about your skills/capabilities/tools, answer with this concrete runtime list and exact count (no generic explanations).\n\n${systemContent}\n\n${memoryContent}`;
+      const staticSystemPrompt = `${portfolioContext}${coreContext}\n\nAvailable Specialized Agents:\n${agentsList}\n\nAvailable Runtime Capabilities (${toolNames.length}):\n${toolsList}\n\nWhen the user asks about your skills/capabilities/tools, answer with this concrete runtime list and exact count (no generic explanations).\n\n${systemContent}\n\n${memoryContent}`;
 
       // Dynamic context injected into the conversation turn instead of the system instruction.
       // Only date (not time) is included to avoid busting the cache on every request.
       const dynamicContextText = `
 # SYSTEM CONTEXT (DO NOT OVERWRITE)
 Today is ${now}.
-Active Project: ${activeProject.title}
-${activeProject.description ? `Project Description: ${activeProject.description}` : ''}
+Active Projects: ${(projectData.projects || []).map(p => p.title).join(', ')}
 
 ## SPECIALIZED AGENTS AVAILABLE:
 ${agentsList}
@@ -2395,28 +2511,61 @@ ${toolsList}
 ${taskContent}
 `;
 
-      // Dynamic context and real-time history shrinker for context efficiency.
-      // Automatically truncates bloated tool outputs from older turns (>4 turns ago)
-      // and strips large base64 image data from previous turns to prevent context explosion.
+      // Dynamic context and real-time history shrinker for context efficiency & token guardrails.
+      // Automatically caps heavy tool outputs (preventing 400k+ token dumps), truncates older turns,
+      // and compacts history when sessions grow long.
       const shrinkHistoryForContext = (history, dynamicContext) => {
         if (!history || history.length === 0) return history;
-        const recentCount = 4;
-        const total = history.length;
+        const recentCount = 2; // Treat only the last 2 turns as immediate active context
+        
+        // Sliding window: if history exceeds 20 turns, keep first turn (mission/system context) + last 14 turns
+        let processedHistory = history;
+        if (history.length > 20) {
+          const firstTurn = history[0];
+          const secondTurn = history[1];
+          const recentSlice = history.slice(-14);
+          const omittedCount = history.length - 2 - 14;
+          processedHistory = [
+            firstTurn,
+            secondTurn,
+            {
+              role: 'user',
+              parts: [{ text: `[System Notice: ${omittedCount} earlier messages archived to maintain lean context and low latency]` }]
+            },
+            ...recentSlice
+          ];
+        }
 
-        return history.map((h, idx) => {
+        const total = processedHistory.length;
+
+        return processedHistory.map((h, idx) => {
           const isRecent = idx >= total - recentCount;
           const isFirst = idx === 0;
 
           let parts = (h.parts || []).map(p => {
             if (p.functionResponse) {
-              if (isRecent) return p;
               let resp = p.functionResponse.response;
               let respStr = typeof resp === 'string' ? resp : JSON.stringify(resp);
-              if (respStr && respStr.length > 600) {
+              
+              if (isRecent) {
+                // Cap active tool outputs to 3500 chars (~800 tokens max)
+                if (respStr && respStr.length > 3500) {
+                  return {
+                    functionResponse: {
+                      name: p.functionResponse.name,
+                      response: { output: respStr.substring(0, 3500) + '\n... [Tool output truncated to 3500 chars to conserve context. Full execution details saved in database/artifacts]' }
+                    }
+                  };
+                }
+                return p;
+              }
+
+              // Older tool outputs truncated to compact 200 chars
+              if (respStr && respStr.length > 300) {
                 return {
                   functionResponse: {
                     name: p.functionResponse.name,
-                    response: { output: respStr.substring(0, 350) + '\n... [Historical tool output pruned for token optimization]' }
+                    response: { output: respStr.substring(0, 200) + '\n... [Historical tool output summarized for token optimization]' }
                   }
                 };
               }
@@ -2424,10 +2573,20 @@ ${taskContent}
             }
 
             if (p.text) {
-              if (isRecent || p.text.length <= 1200) return p;
-              return {
-                text: p.text.substring(0, 500) + '\n... [Historical text pruned for token optimization]'
-              };
+              if (isRecent) {
+                if (p.text.length > 6000) {
+                  return {
+                    text: p.text.substring(0, 6000) + '\n... [Output truncated for active context efficiency]'
+                  };
+                }
+                return p;
+              }
+              if (p.text.length > 600) {
+                return {
+                  text: p.text.substring(0, 400) + '\n... [Historical turn condensed for token optimization]'
+                };
+              }
+              return p;
             }
 
             if (p.inlineData) {
@@ -2494,7 +2653,7 @@ ${taskContent}
       let consecutiveTextOnlyTurns = 0; // FIX: track reassurance-loop depth
       let hasEmittedFinalMessage = false;
       const executedActions = [];
-      const MAX_TURNS = 25;
+      const MAX_TURNS = parseInt(process.env.AGENT_MAX_TURNS || '100', 10);
       while (turnCount < MAX_TURNS && !this.shouldStop && !sessionAbort.signal.aborted) {
         turnCount++;
         const providerNameMap = {
@@ -2528,138 +2687,76 @@ ${taskContent}
         
         const __llmStartTime = Date.now();
         let response;
-        if (provider === 'gemini') {
-          const model = vertexAI.preview.getGenerativeModel({
-            model: 'gemini-2.5-flash', 
-            tools: [{ functionDeclarations: getToolDeclarations()[0].functionDeclarations }]
-          });
+        if (provider === 'gemini' || provider === 'gemini_api' || provider.startsWith('gemini:') || provider.startsWith('gemini_api:')) {
+          const requestedGeminiModel = provider.startsWith('gemini:')
+            ? provider.substring(7)
+            : (provider.startsWith('gemini_api:') ? provider.substring(11) : 'gemini-3.7-flash');
 
-          const generatePromise = model.generateContent({
-            contents: shrinkHistoryForContext(sessionHistory, dynamicContextText),
-            systemInstruction: {
-              role: 'system',
-              parts: [{ text: staticSystemPrompt }]
-            }
-          });
-          
-          const timeoutPromise = new Promise((_, reject) => {
-            const id = setTimeout(() => reject(new Error('Vertex AI API timeout (300s)')), 300000);
-            sessionAbort.signal.addEventListener('abort', () => {
-              clearTimeout(id);
-              reject(new Error('Vertex AI request cancelled by user'));
+          if (hasGeminiKey()) {
+            // Google AI Studio execution via GEMINI_API_KEY
+            const toolDeclarations = [{ functionDeclarations: getToolDeclarations()[0].functionDeclarations }];
+            const gemResult = await generateGeminiContent({
+              contents: shrinkHistoryForContext(sessionHistory, dynamicContextText),
+              model: requestedGeminiModel,
+              systemInstruction: staticSystemPrompt,
+              tools: toolDeclarations,
+              signal: sessionAbort.signal
             });
-          });
 
-          const result = await Promise.race([generatePromise, timeoutPromise]);
+            response = {
+              functionCalls: gemResult.functionCalls,
+              text: gemResult.text,
+              originalParts: gemResult.originalParts,
+              model: gemResult.model,
+              usage: gemResult.usage
+            };
+          } else {
+            // Vertex AI fallback
+            const model = vertexAI.preview.getGenerativeModel({
+              model: 'gemini-2.5-flash', 
+              tools: [{ functionDeclarations: getToolDeclarations()[0].functionDeclarations }]
+            });
 
-          const candidates = result.response.candidates;
-          if (!candidates || candidates.length === 0) throw new Error('No candidates returned from Vertex AI');
-          
-          const firstCandidate = candidates[0]?.content;
-          const candidateParts = firstCandidate?.parts || [];
-          let functionCalls = candidateParts.filter(p => p && p.functionCall).map(p => p.functionCall);
-          let text = candidateParts.filter(p => p && p.text).map(p => p.text).join('\n');
-          let originalParts = candidateParts;
-          let usageMeta = result.response.usageMetadata;
-
-          // If Flash-Lite returned empty text and no function calls, retry seamlessly with gemini-2.5-flash
-          if (functionCalls.length === 0 && text.trim() === '') {
-            console.warn('[Vertex AI] Gemini Flash Lite returned 0 tokens. Retrying with gemini-2.5-flash...');
-            try {
-              const fallbackModel = vertexAI.preview.getGenerativeModel({
-                model: 'gemini-2.5-flash', 
-                tools: [{ functionDeclarations: getToolDeclarations()[0].functionDeclarations }]
-              });
-              const fallbackResult = await fallbackModel.generateContent({
-                contents: shrinkHistoryForContext(sessionHistory, dynamicContextText),
-                systemInstruction: {
-                  role: 'system',
-                  parts: [{ text: staticSystemPrompt }]
-                }
-              });
-              const fCandidates = fallbackResult.response.candidates || [];
-              if (fCandidates.length > 0) {
-                const fParts = fCandidates[0]?.content?.parts || [];
-                functionCalls = fParts.filter(p => p && p.functionCall).map(p => p.functionCall);
-                text = fParts.filter(p => p && p.text).map(p => p.text).join('\n');
-                originalParts = fParts;
-                usageMeta = fallbackResult.response.usageMetadata;
+            const generatePromise = model.generateContent({
+              contents: shrinkHistoryForContext(sessionHistory, dynamicContextText),
+              systemInstruction: {
+                role: 'system',
+                parts: [{ text: staticSystemPrompt }]
               }
-            } catch (retryErr) {
-              console.error('[Vertex AI] Fallback retry error:', retryErr);
-            }
-          }
-
-          response = {
-            functionCalls: functionCalls.length > 0 ? functionCalls : null,
-            text: text,
-            originalParts: originalParts,
-            model: 'gemini-2.5-flash',
-            usage: {
-              promptTokens: usageMeta?.promptTokenCount || 0,
-              candidatesTokens: usageMeta?.candidatesTokenCount || 0,
-              totalTokens: usageMeta?.totalTokenCount || 0
-            }
-          };
-        } else if (provider === 'gemini_api' || (provider === 'gemini' && process.env.GOOGLE_API_KEY)) {
-          // Use standard Gemini API (AI Studio) if an API Key is present
-          const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-          const model = genAI.getGenerativeModel({ 
-            model: 'gemini-2.5-flash-lite',
-            tools: [{ functionDeclarations: getToolDeclarations()[0].functionDeclarations }]
-          });
-
-          // Convert history to standard role/parts format, injecting dynamic context
-          const contents = shrinkHistoryForContext(sessionHistory, dynamicContextText).map(h => ({
-            role: h.role === 'model' ? 'model' : 'user',
-            parts: (h.parts || []).map(p => {
-              if (p.text) return { text: p.text };
-              if (p.functionCall) return { functionCall: p.functionCall };
-              if (p.functionResponse) return { functionResponse: p.functionResponse };
-              if (p.inlineData) return { inlineData: p.inlineData };
-              return {};
-            })
-          }));
-
-          const generatePromise = model.generateContent({
-            contents,
-            systemInstruction: staticSystemPrompt
-          });
-
-          const timeoutPromise = new Promise((_, reject) => {
-            const id = setTimeout(() => reject(new Error('Gemini API timeout (300s)')), 300000);
-            if (this.abortController) {
-              this.abortController.signal.addEventListener('abort', () => {
+            });
+            
+            const timeoutPromise = new Promise((_, reject) => {
+              const id = setTimeout(() => reject(new Error('Vertex AI API timeout (300s)')), 300000);
+              sessionAbort.signal.addEventListener('abort', () => {
                 clearTimeout(id);
-                reject(new Error('Gemini API request cancelled by user'));
+                reject(new Error('Vertex AI request cancelled by user'));
               });
-            }
-          });
+            });
 
-          const result = await Promise.race([generatePromise, timeoutPromise]);
+            const result = await Promise.race([generatePromise, timeoutPromise]);
 
-          const res = result.response;
-          let text = '';
-          try {
-            text = res.text();
-          } catch (_) {
-            text = '';
+            const candidates = result.response.candidates;
+            if (!candidates || candidates.length === 0) throw new Error('No candidates returned from Vertex AI');
+            
+            const firstCandidate = candidates[0]?.content;
+            const candidateParts = firstCandidate?.parts || [];
+            let functionCalls = candidateParts.filter(p => p && p.functionCall).map(p => p.functionCall);
+            let text = candidateParts.filter(p => p && p.text).map(p => p.text).join('\n');
+            let originalParts = candidateParts;
+            let usageMeta = result.response.usageMetadata;
+
+            response = {
+              functionCalls: functionCalls.length > 0 ? functionCalls : null,
+              text: text,
+              originalParts: originalParts,
+              model: 'gemini-2.5-flash',
+              usage: {
+                promptTokens: usageMeta?.promptTokenCount || 0,
+                candidatesTokens: usageMeta?.candidatesTokenCount || 0,
+                totalTokens: usageMeta?.totalTokenCount || 0
+              }
+            };
           }
-          const candidateParts = res.candidates?.[0]?.content?.parts || [];
-          const functionCalls = candidateParts
-            .filter(p => p && p.functionCall)
-            .map(p => p.functionCall);
-
-          response = {
-            functionCalls: functionCalls.length > 0 ? functionCalls : null,
-            text: text,
-            model: 'gemini-2.5-flash-lite',
-            usage: {
-              promptTokens: res.usageMetadata?.promptTokenCount || 0,
-              candidatesTokens: res.usageMetadata?.candidatesTokenCount || 0,
-              totalTokens: res.usageMetadata?.totalTokenCount || 0
-            }
-          };
         } else if (provider === 'digitalocean' || provider.startsWith('do')) {
           const doApiKey = process.env.DIGITAL_OCEAN_API_KEY || process.env.DO_INFERENCE_API_KEY;
           if (!doApiKey) {
@@ -2992,7 +3089,7 @@ ${taskContent}
           let ollamaSystemPrompt = staticSystemPrompt;
           if (ollamaSystemPrompt.length > 6000) {
             const recentMemory = memoryContent.length > 2000 ? memoryContent.slice(-2000) : memoryContent;
-            ollamaSystemPrompt = `Active Project: ${activeProject.title} (${activeProject.description})${projectContext}\n\nAvailable Specialized Agents:\n${agentsList}\n\nAvailable Runtime Capabilities (${toolNames.length}):\n${toolsList}\n\n${systemContent}\n\n# Long-term Memory (Recent Summary)\n${recentMemory}`;
+            ollamaSystemPrompt = `${portfolioContext}${coreContext}\n\nAvailable Specialized Agents:\n${agentsList}\n\nAvailable Runtime Capabilities (${toolNames.length}):\n${toolsList}\n\n${systemContent}\n\n# Long-term Memory (Recent Summary)\n${recentMemory}`;
           }
 
           const ollamaMessages = [
@@ -3191,7 +3288,7 @@ ${taskContent}
           if (ollamaSystemPrompt.length > 6000) {
             // Trim memory for local inference speed while retaining core instructions & context
             const recentMemory = memoryContent.length > 2000 ? memoryContent.slice(-2000) : memoryContent;
-            ollamaSystemPrompt = `Active Project: ${activeProject.title} (${activeProject.description})${projectContext}\n\nAvailable Specialized Agents:\n${agentsList}\n\nAvailable Runtime Capabilities (${toolNames.length}):\n${toolsList}\n\n${systemContent}\n\n# Long-term Memory (Recent Summary)\n${recentMemory}`;
+            ollamaSystemPrompt = `${portfolioContext}${coreContext}\n\nAvailable Specialized Agents:\n${agentsList}\n\nAvailable Runtime Capabilities (${toolNames.length}):\n${toolsList}\n\n${systemContent}\n\n# Long-term Memory (Recent Summary)\n${recentMemory}`;
           }
 
           const ollamaMessages = [
@@ -3453,6 +3550,13 @@ ${taskContent}
             });
           }
 
+          if (turnCount >= MAX_TURNS - 3 && functionResponses.length > 0) {
+            const lastResp = functionResponses[functionResponses.length - 1].functionResponse;
+            if (lastResp && typeof lastResp.response === 'object' && lastResp.response !== null) {
+              lastResp.response._system_budget_notice = `[Turn budget notice]: You are on turn ${turnCount} of ${MAX_TURNS}. Please finalize any pending actions and provide a complete, detailed final answer to the user now.`;
+            }
+          }
+
           sessionHistory.push({ role: 'user', parts: functionResponses });
           await this.saveToHistory('user', functionResponses);
         } else {
@@ -3547,9 +3651,11 @@ ${taskContent}
           fallbackText = `⏹️ **Task stopped by user** after ${turnCount} turns. Executed ${executedActions.length} action(s).`;
         } else if (turnCount >= MAX_TURNS) {
           const uniqueTools = [...new Set(executedActions.map(a => a.toolName))].join(', ');
-          fallbackText = `✅ **Autonomous execution finished (${executedActions.length} actions completed across ${turnCount} turns)**.\n\n` +
-            `*Tools executed:* **${uniqueTools || 'Various tools'}**.\n\n` +
-            `All requested database operations, media updates, and tasks have been processed.`;
+          const actionSummaries = executedActions.slice(-8).map((a, i) => `• **${a.toolName}**: ${a.status === 'success' ? '✓' : '✗'} ${a.preview ? a.preview.replace(/\\n+/g, ' ').substring(0, 150) : 'Done'}`).join('\n');
+          fallbackText = `⚠️ **Autonomous execution reached turn limit (${turnCount} turns, ${executedActions.length} actions executed)**.\n\n` +
+            `**Tools Used:** **${uniqueTools || 'Various tools'}**\n\n` +
+            `**Recent Actions & Output:**\n${actionSummaries || 'Actions recorded in system activity.'}\n\n` +
+            `*All step data has been preserved. You can ask to proceed with the next specific phase.*`;
         } else if (executedActions.length > 0) {
           const uniqueTools = [...new Set(executedActions.map(a => a.toolName))].join(', ');
           fallbackText = `✅ **Task processing completed** (${executedActions.length} actions executed: ${uniqueTools}).`;
@@ -3832,20 +3938,13 @@ setInterval(() => {
 
 async function summarizeAndPersist(socket, sessionId = 'session_default') {
   if (socket) sendLog(socket, 'orchestrator', 'system', 'Analyzing session for long-term memory extraction...', null, 'info', sessionId);
-  
   try {
     const db = await dbPromise;
     const history = await db.all('SELECT role, parts FROM agent_memory WHERE agentId = ? ORDER BY id ASC', ['orchestrator']);
-    
-    if (history.length < 2) return; // Not enough context to learn
-
-    const model = vertexAI.preview.getGenerativeModel({
-      model: 'gemini-2.5-flash-lite',
-    });
-
+    if (!history || history.length < 2) return; // Not enough context to learn
     const conversationText = history.map(h => `${h.role}: ${(JSON.parse(h.parts) || []).map(p => p.text || '[Tool/Other]').join(' ')}`).join('\n');
-    
-    const result = await model.generateContent(`You are an expert executive memory curator for an AI assistant (FrAssist).
+    let analysis = '';
+    const memoryPrompt = `You are an expert executive memory curator for an AI assistant (FrAssist).
 Your mission is to extract ONLY genuine, long-term durable knowledge that will remain valuable across future sessions weeks or months from now.
 
 CRITICAL DISTINCTION — EPHEMERAL vs. DURABLE:
@@ -3867,9 +3966,27 @@ STRICT EXTRACTION RULES (BE EXTREMELY CONSERVATIVE):
 4. If valid durable knowledge exists, summarize it in 1-3 bullet points. Max 100 words. No fluff.
 
 CONVERSATION:
-${conversationText.slice(-8000)}`);
+${conversationText.slice(-8000)}`;
 
-    const analysis = result.response.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (hasGeminiKey()) {
+      try {
+        const gemRes = await generateGeminiContent({
+          contents: memoryPrompt,
+          model: 'gemini-3.7-flash'
+        });
+        analysis = gemRes.text?.trim() || '';
+      } catch (gemErr) {
+        console.warn('[Memory] Gemini AI Studio summarization error:', gemErr.message);
+      }
+    }
+
+    if (!analysis) {
+      const model = vertexAI.preview.getGenerativeModel({
+        model: 'gemini-2.5-flash-lite',
+      });
+      const result = await model.generateContent(memoryPrompt);
+      analysis = result.response.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    }
     if (!analysis || analysis.includes('NO_NEW_MEMORY')) {
       if (socket) sendLog(socket, 'orchestrator', 'system', 'No new durable memory facts found to persist.');
       return;
@@ -4117,22 +4234,37 @@ async function compressSession(socket, targetAgentId = 'orchestrator') {
     }
   }
 
-  // Fallback to Vertex AI / Gemini
+  // Fallback to Gemini AI Studio / Vertex AI
   if (!summary) {
-    try {
-      const model = vertexAI.preview.getGenerativeModel({ model: 'gemini-2.5-flash' });
-      const res = await model.generateContent({
-        contents: [{
-          role: 'user',
-          parts: [{
-            text: `You are an AI context compression engine. Summarize the following session transcript into a dense, structured Markdown summary under 250 words preserving all essential tasks, facts, preferences, and state:\n\n${fullTranscript.substring(0, 35000)}`
+    const compressPrompt = `You are an AI context compression engine. Summarize the following session transcript into a dense, structured Markdown summary under 250 words preserving all essential tasks, facts, preferences, and state:\n\n${fullTranscript.substring(0, 35000)}`;
+    if (hasGeminiKey()) {
+      try {
+        const gRes = await generateGeminiContent({
+          contents: compressPrompt,
+          model: 'gemini-3.7-flash'
+        });
+        summary = gRes.text?.trim() || '';
+      } catch (gemErr) {
+        console.warn('[Compress] Gemini AI Studio summarization error:', gemErr.message);
+      }
+    }
+
+    if (!summary) {
+      try {
+        const model = vertexAI.preview.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        const res = await model.generateContent({
+          contents: [{
+            role: 'user',
+            parts: [{
+              text: compressPrompt
+            }]
           }]
-        }]
-      });
-      summary = res.response.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    } catch (err) {
-      console.warn('[Compress] Vertex AI summarization error:', err.message);
-      summary = `### Prior Session Summary\n- Multi-turn conversation with ${history.length} turns processed.\n- Ongoing tasks and key facts preserved in workspace context.`;
+        });
+        summary = res.response.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      } catch (err) {
+        console.warn('[Compress] Vertex AI summarization error:', err.message);
+        summary = `### Prior Session Summary\n- Multi-turn conversation with ${history.length} turns processed.\n- Ongoing tasks and key facts preserved in workspace context.`;
+      }
     }
   }
 
@@ -4208,7 +4340,8 @@ async function loadActiveAgents() {
 loadActiveAgents();
 
 const checkKeys = () => ({
-  hasGemini: true,
+  hasGemini: !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_CLOUD_PROJECT),
+  hasGeminiStudio: !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
   hasOllamaCloud: !!process.env.OLLAMA_API_KEY,
   hasOllamaCloud2: !!process.env.OLLAMA_API_KEY_2,
   hasDigitalOcean: !!(process.env.DIGITAL_OCEAN_API_KEY || process.env.DO_INFERENCE_API_KEY),
@@ -4934,11 +5067,12 @@ io.on('connection', (socket) => {
   sendKeyStatus();
 
   socket.on('set_gemini_key', (data) => {
-    const key = data.apiKey;
+    const key = data.apiKey || data.key;
     if (key) {
+      updateEnv('GEMINI_API_KEY', key);
       updateEnv('GOOGLE_API_KEY', key);
       sendKeyStatus();
-      socket.emit('agent_message', { agentId: 'orchestrator', content: 'Gemini API Key saved permanently to .env!' });
+      socket.emit('agent_message', { agentId: 'orchestrator', content: 'Google Gemini (Google AI Studio) API Key saved permanently to .env!' });
     }
   });
 
@@ -5059,33 +5193,64 @@ io.on('connection', (socket) => {
     sendLog(socket, 'orchestrator', 'api_request', `Generating agent config for: ${prompt}`);
     
     try {
-      const model = vertexAI.preview.getGenerativeModel({
-        model: 'gemini-2.5-flash-lite',
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'OBJECT',
-            properties: {
-              name: { type: 'STRING' },
-              role: { type: 'STRING' },
-              task: { type: 'STRING' },
-              scope: { type: 'STRING' },
-              memory: { type: 'STRING' }
-            },
-            required: ['name', 'role', 'task', 'scope', 'memory']
-          }
-        }
-      });
-
-      const result = await model.generateContent(`Generate a specialized AI agent configuration based on this request: "${prompt}". 
+      let configText = '';
+      const agentGenPrompt = `Generate a specialized AI agent configuration based on this request: "${prompt}". 
       Return a JSON object with:
       - name: A short, catchy name
       - role: A professional role title
       - task: A detailed set of primary instructions (Markdown supported)
       - scope: What the agent should and should not do
-      - memory: Any initial context or focus`);
+      - memory: Any initial context or focus`;
 
-      const config = JSON.parse(result.response.candidates[0].content.parts[0].text);
+      if (hasGeminiKey()) {
+        try {
+          const gRes = await generateGeminiContent({
+            contents: agentGenPrompt,
+            model: 'gemini-3.7-flash',
+            generationConfig: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: 'OBJECT',
+                properties: {
+                  name: { type: 'STRING' },
+                  role: { type: 'STRING' },
+                  task: { type: 'STRING' },
+                  scope: { type: 'STRING' },
+                  memory: { type: 'STRING' }
+                },
+                required: ['name', 'role', 'task', 'scope', 'memory']
+              }
+            }
+          });
+          configText = gRes.text?.trim() || '';
+        } catch (gemErr) {
+          console.warn('[AgentGen] Gemini AI Studio failed, falling back to Vertex AI:', gemErr.message);
+        }
+      }
+
+      if (!configText) {
+        const model = vertexAI.preview.getGenerativeModel({
+          model: 'gemini-2.5-flash-lite',
+          generationConfig: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'OBJECT',
+              properties: {
+                name: { type: 'STRING' },
+                role: { type: 'STRING' },
+                task: { type: 'STRING' },
+                scope: { type: 'STRING' },
+                memory: { type: 'STRING' }
+              },
+              required: ['name', 'role', 'task', 'scope', 'memory']
+            }
+          }
+        });
+        const result = await model.generateContent(agentGenPrompt);
+        configText = result.response.candidates[0].content.parts[0].text;
+      }
+
+      const config = JSON.parse(configText);
       socket.emit('agent_config_generated', config);
       sendLog(socket, 'orchestrator', 'api_response', `Agent config generated: ${config.name}`);
     } catch (error) {
@@ -5455,7 +5620,10 @@ app.post('/api/llm/settings', (req, res) => {
   if (ollamaKey) updateEnv('OLLAMA_API_KEY', ollamaKey);
   if (ollamaKey2) updateEnv('OLLAMA_API_KEY_2', ollamaKey2);
   if (digitaloceanKey) updateEnv('DIGITAL_OCEAN_API_KEY', digitaloceanKey);
-  if (geminiKey) updateEnv('GOOGLE_API_KEY', geminiKey);
+  if (geminiKey) {
+    updateEnv('GEMINI_API_KEY', geminiKey);
+    updateEnv('GOOGLE_API_KEY', geminiKey);
+  }
   if (perplexityKey) updateEnv('PERPLEXITY_API_KEY', perplexityKey);
   if (tavilyKey) updateEnv('TAVILY_API_KEY', tavilyKey);
   if (telegramToken) updateEnv('TELEGRAM_BOT_TOKEN', telegramToken);
@@ -5534,11 +5702,26 @@ app.post('/api/llm/test-provider', async (req, res) => {
       const doModel = model || (targetProvider.startsWith('do:') ? targetProvider.substring(3) : undefined);
       const text = await createChatCompletion([{ role: 'user', content: 'Say "Ready" in one word.' }], { model: doModel });
       return res.json({ success: true, latency: Date.now() - startTime, model: doModel || 'default', reply: text.trim().slice(0, 100) });
-    } else if (targetProvider === 'gemini') {
-      const genAIModel = vertexAI.preview.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
-      const result = await genAIModel.generateContent('Say "Ready" in one word.');
-      const text = result.response.candidates?.[0]?.content?.parts?.[0]?.text || 'Connected';
-      return res.json({ success: true, latency: Date.now() - startTime, model: 'gemini-2.5-flash-lite', reply: text.trim().slice(0, 100) });
+    } else if (targetProvider === 'gemini' || targetProvider === 'gemini_api' || targetProvider.startsWith('gemini:') || targetProvider.startsWith('gemini_api:')) {
+      const gemModel = targetProvider.startsWith('gemini:')
+        ? targetProvider.substring(7)
+        : (targetProvider.startsWith('gemini_api:') ? targetProvider.substring(11) : (model || 'gemini-3.7-flash'));
+
+      if (hasGeminiKey()) {
+        const testRes = await testGeminiInference(gemModel);
+        return res.json({
+          success: true,
+          latency: testRes.latency,
+          model: testRes.model,
+          reply: testRes.reply,
+          note: 'Inference verified via Google AI Studio API (GEMINI_API_KEY)'
+        });
+      } else {
+        const genAIModel = vertexAI.preview.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+        const result = await genAIModel.generateContent('Say "Ready" in one word.');
+        const text = result.response.candidates?.[0]?.content?.parts?.[0]?.text || 'Connected';
+        return res.json({ success: true, latency: Date.now() - startTime, model: 'gemini-2.5-flash-lite (Vertex)', reply: text.trim().slice(0, 100) });
+      }
     } else {
       return res.json({ success: true, latency: Date.now() - startTime, provider: targetProvider, reply: 'Provider OK' });
     }

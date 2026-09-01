@@ -3,6 +3,7 @@ import path from 'path';
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
 import { VertexAI } from '@google-cloud/vertexai';
+import { generateGeminiContent, hasGeminiKey } from '../services/geminiService.js';
 
 export const declaration = {
   name: 'learn',
@@ -46,19 +47,6 @@ export async function execute(args) {
       return `${h.role}: ${text}`;
     }).join('\n');
 
-    const project = process.env.GOOGLE_CLOUD_PROJECT || 'rally-nyc';
-    const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
-    
-    const vertexAI = new VertexAI({
-      project: project,
-      location: location,
-      apiEndpoint: 'aiplatform.googleapis.com',
-    });
-
-    const model = vertexAI.preview.getGenerativeModel({
-      model: 'gemini-2.5-flash-lite',
-    });
-
     const prompt = `You are an expert executive AI architect for a software engineering assistant.
 Your mission is to analyze the following conversation and extract ONLY high-value, reusable architectural insights, codebase patterns, and concrete proposals for long-term project improvements.
 
@@ -92,8 +80,35 @@ CONVERSATION:
 ${conversationText.slice(-8000)}
 `;
 
-    const result = await model.generateContent(prompt);
-    const textResult = result.response.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '{}';
+    let textResult = '{}';
+
+    if (hasGeminiKey()) {
+      try {
+        const gemRes = await generateGeminiContent({
+          contents: prompt,
+          model: 'gemini-3.7-flash',
+          generationConfig: { responseMimeType: 'application/json' }
+        });
+        textResult = gemRes.text?.trim() || '{}';
+      } catch (gemErr) {
+        console.warn('[Learn] Gemini AI Studio inference failed, falling back to Vertex AI:', gemErr.message);
+      }
+    }
+
+    if (!textResult || textResult === '{}') {
+      const project = process.env.GOOGLE_CLOUD_PROJECT || 'rally-nyc';
+      const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
+      const vertexAI = new VertexAI({
+        project: project,
+        location: location,
+        apiEndpoint: 'aiplatform.googleapis.com',
+      });
+      const model = vertexAI.preview.getGenerativeModel({
+        model: 'gemini-2.5-flash-lite',
+      });
+      const result = await model.generateContent(prompt);
+      textResult = result.response.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '{}';
+    }
     
     // Extract JSON block in case there's markdown wrapping
     const jsonMatch = textResult.match(/\{[\s\S]*\}/);

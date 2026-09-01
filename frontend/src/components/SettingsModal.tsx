@@ -211,8 +211,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  // Curated 10 Top Ollama Cloud Models
+  // Curated Top Ollama Cloud Models
   const curatedCloudModels = [
+    { name: 'glm-5.3-flash:cloud', label: 'GLM 5.3 Flash (1M Context)', badge: 'Ultra Fast', desc: 'Next-generation frontier flash model with 1M context, high reasoning density and sub-second tool responses.' },
     { name: 'glm-5.2:cloud', label: 'GLM 5.2 (1M Context)', badge: 'Repo Scale', desc: 'Frontier open coding model for repo-scale refactors, migrations & long-horizon engineering.' },
     { name: 'deepseek-v4-flash:cloud', label: 'DeepSeek V4 Flash', badge: '284B MoE', desc: 'Fast 1M context MoE with 3 thinking modes, ideal for tool-using agents and hard debugging.' },
     { name: 'deepseek-v4-pro:cloud', label: 'DeepSeek V4 Pro', badge: '1.6T MoE', desc: 'Heavyweight reasoning variant for the most complex bugs, math and financial logic.' },
@@ -854,12 +855,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </p>
                   </div>
 
-                  {/* Google Vertex */}
+                  {/* Google Gemini / AI Studio */}
                   <div
                     onClick={() => handleSelectProvider('gemini')}
                     style={{
-                      border: aiProvider === 'gemini' ? '2px solid #6366f1' : '1px solid #e2e8f0',
-                      background: aiProvider === 'gemini' ? '#eef2ff' : 'white',
+                      border: aiProvider === 'gemini' || aiProvider.startsWith('gemini') ? '2px solid #6366f1' : '1px solid #e2e8f0',
+                      background: aiProvider === 'gemini' || aiProvider.startsWith('gemini') ? '#eef2ff' : 'white',
                       borderRadius: '10px',
                       padding: '0.85rem',
                       cursor: 'pointer'
@@ -868,12 +869,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                         <Zap size={15} color="#6366f1" />
-                        <span style={{ fontWeight: 700, fontSize: '0.85rem', color: '#0f172a' }}>Google Gemini / Vertex</span>
+                        <span style={{ fontWeight: 700, fontSize: '0.85rem', color: '#0f172a' }}>Google Gemini (Google AI Studio)</span>
                       </div>
-                      {aiProvider === 'gemini' && <Check size={13} color="#6366f1" />}
+                      {(aiProvider === 'gemini' || aiProvider.startsWith('gemini')) && <Check size={13} color="#6366f1" />}
                     </div>
                     <p style={{ margin: 0, fontSize: '0.73rem', color: '#64748b' }}>
-                      Gemini 2.5 Flash with multimodal audio/image analysis.
+                      Gemini 3.7 Flash & 3.6 Flash via GEMINI_API_KEY with multimodal & tool calling capabilities.
                     </p>
                   </div>
 
@@ -915,7 +916,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 { id: 'ollama', name: 'Ollama Cloud API Key (Primary)', env: 'OLLAMA_API_KEY', configured: keyStatus.hasOllamaCloud, placeholder: 'Enter primary Ollama Cloud API Key...' },
                 { id: 'ollama2', name: 'Ollama Cloud Backup Key (Failover)', env: 'OLLAMA_API_KEY_2', configured: keyStatus.hasOllamaCloud2, placeholder: 'Enter secondary/backup Ollama Cloud API Key...' },
                 { id: 'digitalocean', name: 'DigitalOcean Inference Key', env: 'DIGITAL_OCEAN_API_KEY', configured: keyStatus.hasDigitalOcean, placeholder: 'Enter DigitalOcean API Key...' },
-                { id: 'gemini', name: 'Google Gemini / Vertex AI Key', env: 'GOOGLE_API_KEY', configured: keyStatus.hasGemini, placeholder: 'Enter Google API Key...' },
+                { id: 'gemini', name: 'Google Gemini API Key (Google AI Studio)', env: 'GEMINI_API_KEY', configured: keyStatus.hasGemini, placeholder: 'Enter GEMINI_API_KEY from Google AI Studio...' },
                 { id: 'tavily', name: 'Tavily Search API Key', env: 'TAVILY_API_KEY', configured: keyStatus.hasTavily, placeholder: 'Enter Tavily Search Key...' },
                 { id: 'telegram', name: 'Telegram Bot Token', env: 'TELEGRAM_BOT_TOKEN', configured: keyStatus.hasTelegram, placeholder: 'Enter Telegram Bot Token...' },
                 { id: 'duffel', name: 'Duffel Flights API Key', env: 'DUFFEL_API_KEY', configured: keyStatus.hasDuffel, placeholder: 'Enter Duffel API Key...' }
@@ -1107,7 +1108,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     }}
                   >
                     <Zap size={14} />
-                    Test Google Gemini
+                    Test Google Gemini (AI Studio)
                   </button>
                 </div>
               </div>

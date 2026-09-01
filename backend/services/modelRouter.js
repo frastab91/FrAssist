@@ -364,8 +364,13 @@ export function routeTask({
 export function getFriendlyModelName(providerStr) {
   if (!providerStr) return 'Auto-Router';
   if (providerStr === 'auto' || providerStr === 'auto_hybrid') return 'Smart Hybrid Auto-Router';
-  if (providerStr === 'gemini') return 'Google Gemini (2.5 Flash)';
-  if (providerStr === 'gemini_api') return 'Google Gemini (API Key)';
+  if (providerStr === 'gemini') return 'Google Gemini 3.7 Flash (AI Studio)';
+  if (providerStr === 'gemini:gemini-3.7-flash') return 'Google Gemini 3.7 Flash (AI Studio)';
+  if (providerStr === 'gemini:gemini-3.6-flash') return 'Google Gemini 3.6 Flash (AI Studio)';
+  if (providerStr === 'gemini:gemini-flash-latest') return 'Google Gemini Flash Latest (AI Studio)';
+  if (providerStr.startsWith('gemini:')) return `Google Gemini (${providerStr.substring(7)})`;
+  if (providerStr === 'gemini_api') return 'Google Gemini (Google AI Studio)';
+  if (providerStr.startsWith('gemini_api:')) return `Google Gemini (${providerStr.substring(11)})`;
   if (providerStr === 'digitalocean') return 'DigitalOcean GenAI (General Router)';
   if (providerStr.startsWith('do:')) return `DigitalOcean (${providerStr.substring(3)})`;
   if (providerStr.startsWith('ollama_cloud:')) return `Ollama Cloud (${providerStr.substring(13)})`;

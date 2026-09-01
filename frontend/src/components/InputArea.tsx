@@ -217,7 +217,7 @@ export function InputArea({
             isRecording ? "🎙️ Listening... (speak into your microphone, click mic to finish)" :
             isConfiguringKey === 'ollama' ? "Enter Ollama Cloud API Key (saved permanently to backend/.env)..." :
             isConfiguringKey === 'digitalocean' ? "Enter DigitalOcean API Key..." :
-            isConfiguringKey === 'gemini' ? "Enter Gemini API Key..." :
+            isConfiguringKey === 'gemini' ? "Enter GEMINI_API_KEY from Google AI Studio (saved permanently to backend/.env)..." :
             isConfiguringKey === 'perplexity' ? "Enter Perplexity API Key..." :
             isConfiguringKey === 'tavily' ? "Enter Tavily API Key..." :
             isConfiguringKey === 'telegram' ? "Enter Telegram Bot Token..." :

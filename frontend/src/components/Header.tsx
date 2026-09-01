@@ -1,5 +1,5 @@
-import React from 'react';
-import { Settings, ChevronDown, Folder, Terminal, Volume2, VolumeX, Globe, Play, MessageSquare, Activity, PanelLeft } from 'lucide-react';
+import React, { useState } from 'react';
+import { Settings, ChevronDown, Folder, Terminal, Volume2, VolumeX, Globe, Play, MessageSquare, Activity, PanelLeft, Copy, Check, Hash } from 'lucide-react';
 import type { KeyStatus } from '../types';
 import { Socket } from 'socket.io-client';
 
@@ -52,6 +52,7 @@ type HeaderProps = {
   isCurrentSessionWorking?: boolean;
   handleStop?: () => void;
   onOpenSettings?: () => void;
+  activeSessionId?: string;
 };
 
 export function Header({
@@ -85,7 +86,18 @@ export function Header({
   isCurrentSessionWorking = false,
   handleStop,
   onOpenSettings,
+  activeSessionId = 'session_default',
 }: HeaderProps) {
+  const [copiedSessionId, setCopiedSessionId] = useState(false);
+
+  const handleCopySessionId = () => {
+    if (activeSessionId) {
+      navigator.clipboard.writeText(activeSessionId);
+      setCopiedSessionId(true);
+      setTimeout(() => setCopiedSessionId(false), 2000);
+    }
+  };
+
   return (
     <header className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.25rem', borderBottom: '1px solid #e2e8f0', background: 'white' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
@@ -100,6 +112,37 @@ export function Header({
           FrAssist
           <span style={{ fontSize: '0.65rem', background: '#dbeafe', color: '#1e40af', padding: '0.15rem 0.45rem', borderRadius: '9999px', fontWeight: 600 }}>v2.5</span>
         </span>
+
+        {/* Visible Session ID Badge with 1-Click Copy */}
+        <button
+          onClick={handleCopySessionId}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.35rem',
+            padding: '0.25rem 0.55rem',
+            background: copiedSessionId ? '#dcfce7' : '#f1f5f9',
+            border: `1px solid ${copiedSessionId ? '#86efac' : '#e2e8f0'}`,
+            borderRadius: '6px',
+            fontSize: '0.75rem',
+            fontFamily: 'monospace',
+            color: copiedSessionId ? '#15803d' : '#475569',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            maxWidth: '220px'
+          }}
+          title={`Session ID: ${activeSessionId}\nClick to copy for reference or debugging`}
+        >
+          <Hash size={12} style={{ color: copiedSessionId ? '#16a34a' : '#94a3b8', flexShrink: 0 }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {activeSessionId}
+          </span>
+          {copiedSessionId ? (
+            <Check size={12} style={{ color: '#16a34a', flexShrink: 0 }} />
+          ) : (
+            <Copy size={11} style={{ color: '#94a3b8', flexShrink: 0 }} />
+          )}
+        </button>
         
         {/* Mission Control button */}
         <button
@@ -172,7 +215,8 @@ export function Header({
             <option value="auto">⚡ Smart Hybrid Auto-Router</option>
           </optgroup>
 
-          <optgroup label="⚡ Ollama Cloud (10 Top Frontier Models)">
+          <optgroup label="⚡ Ollama Cloud (Top Frontier Models)">
+            <option value="ollama_cloud:glm-5.3-flash:cloud">GLM 5.3 Flash (1M Context - Ultra Fast)</option>
             <option value="ollama_cloud:glm-5.2:cloud">GLM 5.2 (1M Context - Repo Scale)</option>
             <option value="ollama_cloud:deepseek-v4-flash:cloud">DeepSeek V4 Flash (284B MoE)</option>
             <option value="ollama_cloud:deepseek-v4-pro:cloud">DeepSeek V4 Pro (1.6T MoE Reasoning)</option>
@@ -193,8 +237,11 @@ export function Header({
             <option value="do:mistral-3-14B">DO Mistral 3 14B (Fast)</option>
           </optgroup>
           
-          <optgroup label="Google Gemini">
-            <option value="gemini">Google Gemini 2.5 Flash</option>
+          <optgroup label="Google Gemini (Google AI Studio)">
+            <option value="gemini">Google Gemini 3.7 Flash (Default)</option>
+            <option value="gemini:gemini-3.7-flash">Google Gemini 3.7 Flash</option>
+            <option value="gemini:gemini-3.6-flash">Google Gemini 3.6 Flash</option>
+            <option value="gemini:gemini-flash-latest">Google Gemini Flash (Latest)</option>
             <option value="vertex_research">Deep Research Agent</option>
           </optgroup>
           
@@ -301,7 +348,7 @@ export function Header({
                   {([
                     ['ollama', 'Ollama Cloud', keyStatus.hasOllamaCloud],
                     ['digitalocean', 'DigitalOcean', keyStatus.hasDigitalOcean],
-                    ['gemini', 'Vertex', keyStatus.hasGemini],
+                    ['gemini', 'Google AI Studio', keyStatus.hasGemini],
                     ['perplexity', 'Perplexity', keyStatus.hasPerplexity],
                     ['tavily', 'Tavily', keyStatus.hasTavily],
                     ['telegram', 'Telegram', keyStatus.hasTelegram],

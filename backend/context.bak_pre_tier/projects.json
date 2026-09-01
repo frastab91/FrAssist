@@ -1,0 +1,29 @@
+{
+  "activeProjectId": "tra-montiemare",
+  "projects": [
+    {
+      "id": "tra-montiemare",
+      "title": "Vacation rental in Scalea, Italy",
+      "description": "the website where I manage my vacation rental in SCALEA, query about guests, revenue, avaiability or draft reply messages to inquiries",
+      "supabaseUrl": "https://vlbrrbxpzsozwlqfmkgo.supabase.co",
+      "supabaseKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZsYnJyYnhwenNvendscWZta2dvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NTA1NjYwOSwiZXhwIjoyMDYwNjMyNjA5fQ.xaqW-15DVmxoq2_MekkRwCxGQ2rAIvhyqxll1rwuh8w",
+      "supabaseServiceRoleKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZsYnJyYnhwenNvendscWZta2dvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NTA1NjYwOSwiZXhwIjoyMDYwNjMyNjA5fQ.xaqW-15DVmxoq2_MekkRwCxGQ2rAIvhyqxll1rwuh8w"
+    },
+    {
+      "id": "rally-nyc",
+      "title": "Rally NYC",
+      "description": "RallyNYC is a mobile-first web application designed for New York City tennis players to improve their court experience by providing community-reported crowd levels and wait times while facilitating connections between local players looking for hitting partners.",
+      "supabaseUrl": "https://oylhowvuhatfiyejjhwd.supabase.co",
+      "supabaseAnonKey": "sb_publishable_rJkAujGcRvnw2TJHnkxxQQ_pN6rto1X",
+      "supabaseServiceRoleKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95bGhvd3Z1aGF0Zml5ZWpqaHdkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTM1MDEwOCwiZXhwIjoyMDkwOTI2MTA4fQ.oJAxBJXlUlzCMuYh_fq1rrfcGsX5oDGo41GLBmfY_1U"
+    },
+    {
+      "id": "overnight",
+      "title": "Overnight",
+      "description": "Overnights wants to challenge the current madness of finding guests for medium-term stays, as marketplace designed for thoughtful monthly and mid-term home stays, featuring AI-assisted listing creation, flexible seasonal pricing, and direct host-guest communication.",
+      "supabaseUrl": "https://kjbxryultukyqwmfvdsm.supabase.co",
+      "supabaseAnonKey": "sb_publishable_eRHpPRhiShS2vMvai7646w_s1cyM3C7",
+      "supabaseServiceRoleKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqYnhyeXVsdHVreXF3bWZ2ZHNtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODAwMzEzOSwiZXhwIjoyMTAzNTc5MTM5fQ.rYXMPkt97TYfevB9Bix7h8-6kZeRrmoXTcqku3ZEYWQ"
+    }
+  ]
+}

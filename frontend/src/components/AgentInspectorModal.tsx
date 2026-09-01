@@ -1,6 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import { Bot, X, Shield, Terminal, Brain, Calendar, Clock, CheckCircle2 } from 'lucide-react';
 import type { AgentDetails } from '../types';
+import { formatCronDescription } from '../lib/cronFormatter';
 
 type AgentInspectorModalProps = {
   selectedAgentDetails: AgentDetails;
@@ -110,9 +111,12 @@ export function AgentInspectorModal({
                             ● {job.status.toUpperCase()}
                           </span>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.5rem' }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                            <Clock size={12} /> Cron: <code style={{ color: '#38bdf8' }}>{job.cron}</code>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#38bdf8', fontWeight: 500 }}>
+                            <Clock size={13} /> {formatCronDescription(job.cron)}
+                          </span>
+                          <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                            (<code style={{ color: '#94a3b8' }}>{job.cron}</code>)
                           </span>
                           {job.lastRun && (
                             <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>

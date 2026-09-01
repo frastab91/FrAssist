@@ -235,7 +235,15 @@ export default function App() {
 
   // Multi-Session & Channel State
   const [activeChannel, setActiveChannel] = useState<'web' | 'whatsapp' | 'telegram' | 'agent'>('web');
-  const [activeSessionId, setActiveSessionId] = useState<string>('session_default');
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => {
+    try {
+      const urlParam = new URLSearchParams(window.location.search).get('session');
+      if (urlParam) return urlParam;
+      const saved = localStorage.getItem('frassist_active_session_id');
+      if (saved) return saved;
+    } catch (_) {}
+    return 'session_default';
+  });
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [sessionTitle, setSessionTitle] = useState<string>('');
   const [subagentsUsed, setSubagentsUsed] = useState<string[]>([]);
@@ -247,6 +255,14 @@ export default function App() {
   const activeSessionIdRef = useRef(activeSessionId);
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
+    try {
+      localStorage.setItem('frassist_active_session_id', activeSessionId);
+      const currentUrl = new URL(window.location.href);
+      if (currentUrl.searchParams.get('session') !== activeSessionId) {
+        currentUrl.searchParams.set('session', activeSessionId);
+        window.history.replaceState({}, '', currentUrl.toString());
+      }
+    } catch (_) {}
   }, [activeSessionId]);
 
   const handleChannelChange = (channel: 'web' | 'whatsapp' | 'telegram' | 'agent') => {
@@ -1204,6 +1220,7 @@ export default function App() {
           isCurrentSessionWorking={Boolean(sessionWorkingMap[activeSessionId])}
           handleStop={() => handleStop(activeSessionId)}
           onOpenSettings={() => setShowSettingsModal(true)}
+          activeSessionId={activeSessionId}
         />
 
         {activeChannel === 'whatsapp' ? (

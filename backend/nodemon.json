@@ -1,0 +1,22 @@
+{
+  "watch": [
+    "index.js",
+    "skills/",
+    "services/",
+    "agents/",
+    "context/"
+  ],
+  "ignore": [
+    ".env",
+    ".env.*",
+    ".env.bak",
+    "port.json",
+    "screenshots/",
+    "memory/",
+    "tasks/",
+    "audio/",
+    "database.sqlite",
+    "data/"
+  ],
+  "ext": "js,mjs,json"
+}

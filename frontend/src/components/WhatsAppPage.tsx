@@ -873,7 +873,8 @@ export function WhatsAppPage({ status, socket, onBackToWorkspace }: WhatsAppPage
               <optgroup label="🚀 Smart Routing (Recommended)">
                 <option value="auto">⚡ Smart Hybrid Auto-Router</option>
               </optgroup>
-              <optgroup label="⚡ Ollama Cloud (10 Top Frontier Models)">
+              <optgroup label="⚡ Ollama Cloud (Top Frontier Models)">
+                <option value="ollama_cloud:glm-5.3-flash:cloud">GLM 5.3 Flash (1M Context - Ultra Fast)</option>
                 <option value="ollama_cloud:gemma4:31b-cloud">Gemma 4 31B (Sub-300ms Fast)</option>
                 <option value="ollama_cloud:minimax-m3:cloud">MiniMax M3 (Multilingual Concierge)</option>
                 <option value="ollama_cloud:qwen3.5:397b-cloud">Qwen 3.5 397B (Italian/English)</option>
@@ -886,12 +887,16 @@ export function WhatsAppPage({ status, socket, onBackToWorkspace }: WhatsAppPage
                 <option value="ollama_cloud:rafw007/deepseek-v4-flash-fast:latest">DeepSeek-V4 Flash Fast (Ops)</option>
                 <option value="ollama_cloud">Ollama Cloud (Default)</option>
               </optgroup>
+              <optgroup label="Google Gemini (Google AI Studio)">
+                <option value="gemini">Google Gemini 3.7 Flash (Default)</option>
+                <option value="gemini:gemini-3.7-flash">Google Gemini 3.7 Flash</option>
+                <option value="gemini:gemini-3.6-flash">Google Gemini 3.6 Flash</option>
+                <option value="gemini:gemini-flash-latest">Google Gemini Flash (Latest)</option>
+              </optgroup>
               <optgroup label="Other Cloud Models">
                 <option value="digitalocean">DigitalOcean Serverless Router</option>
                 <option value="groq:openai/gpt-oss-120b">Groq (GPT-OSS-120B - Fast)</option>
                 <option value="groq:qwen/qwen3.6-27b">Groq (Qwen 3.6 27B)</option>
-                <option value="gemini">Google Gemini 2.5 Flash</option>
-                <option value="gemini-1.5-flash">Google Gemini 1.5 Flash</option>
               </optgroup>
               <optgroup label="Local Models (Ollama)">
                 {availableOllamaModels.length > 0 ? (

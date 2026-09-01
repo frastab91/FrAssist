@@ -16,9 +16,14 @@ const vertexAI = new VertexAI({
 
 async function getChromaDb() {
   if (!dbInstance) {
-    const dbPath = path.join(process.cwd(), 'data', 'chroma_db', 'chroma.sqlite3');
-    if (!fs.existsSync(dbPath)) {
-      throw new Error(`Chroma SQLite database not found at ${dbPath}`);
+    const candidates = [
+      path.join(process.cwd(), 'data', 'chroma_db', 'chroma.sqlite3'),
+      path.join(process.cwd(), 'backend', 'data', 'chroma_db', 'chroma.sqlite3'),
+      path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'data', 'chroma_db', 'chroma.sqlite3')
+    ];
+    const dbPath = candidates.find(p => fs.existsSync(p));
+    if (!dbPath) {
+      throw new Error(`Chroma SQLite database not found in any candidate paths: ${candidates.join(', ')}`);
     }
     dbInstance = await open({
       filename: dbPath,
@@ -51,16 +56,19 @@ export async function getQueryEmbedding(text) {
   }
 
   // 1. Try Gemini AI Studio API key if available
-  if (process.env.GOOGLE_API_KEY) {
-    try {
-      const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-      const model = genAI.getGenerativeModel({ model: 'text-embedding-004' });
-      const res = await model.embedContent(text);
-      if (res?.embedding?.values) {
-        return res.embedding.values;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (apiKey) {
+    for (const embModel of ['gemini-embedding-001', 'text-embedding-004']) {
+      try {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: embModel });
+        const res = await model.embedContent(text);
+        if (res?.embedding?.values) {
+          return res.embedding.values;
+        }
+      } catch (err) {
+        // Try next model or fallback
       }
-    } catch (err) {
-      console.warn('[RAG Service] GoogleGenerativeAI embedContent failed, falling back to Vertex AI:', err.message);
     }
   }
 

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import type { TrackerOverview } from '../types';
 import { Socket } from 'socket.io-client';
+import { formatCronDescription } from '../lib/cronFormatter';
 
 type MissionControlModalProps = {
   isOpen: boolean;
@@ -984,6 +985,10 @@ export function MissionControlModal({
                           Hourly
                         </button>
                       </div>
+                      <div style={{ marginTop: '4px', fontSize: '0.75rem', color: '#2563eb', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Clock size={12} />
+                        <span>Schedule: <strong>{formatCronDescription(newJobCron)}</strong></span>
+                      </div>
                     </div>
 
                     <div style={{ gridColumn: 'span 2' }}>
@@ -1147,6 +1152,10 @@ export function MissionControlModal({
                                   Every 30m
                                 </button>
                               </div>
+                              <div style={{ marginTop: '4px', fontSize: '0.75rem', color: '#2563eb', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <Clock size={12} />
+                                <span>Schedule: <strong>{formatCronDescription(editingJob.cron)}</strong></span>
+                              </div>
                             </div>
 
                             <div style={{ gridColumn: 'span 2' }}>
@@ -1198,7 +1207,7 @@ export function MissionControlModal({
                         }}
                       >
                         <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
                             <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: '#0f172a' }}>
                               {job.name || 'Unnamed Job'}
                             </h4>
@@ -1215,13 +1224,28 @@ export function MissionControlModal({
                             </span>
                             <span style={{
                               fontSize: '0.75rem',
+                              fontWeight: 500,
+                              background: '#eff6ff',
+                              color: '#1d4ed8',
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              border: '1px solid #bfdbfe',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.3rem'
+                            }}>
+                              <Clock size={12} />
+                              {formatCronDescription(job.cron)}
+                            </span>
+                            <span style={{
+                              fontSize: '0.7rem',
                               fontFamily: 'monospace',
                               background: '#f8fafc',
                               padding: '2px 6px',
                               borderRadius: '4px',
                               border: '1px solid #e2e8f0',
-                              color: '#334155'
-                            }}>
+                              color: '#64748b'
+                            }} title="Raw cron expression">
                               {job.cron}
                             </span>
                           </div>

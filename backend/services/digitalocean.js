@@ -66,8 +66,21 @@ export async function createChatCompletion(messages, options = {}) {
     return response.body;
   }
 
+function cleanReasoning(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
+    .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
+    .replace(/<think>[\s\S]*$/gi, '')
+    .replace(/<reasoning>[\s\S]*$/gi, '')
+    .replace(/<thought>[\s\S]*$/gi, '')
+    .trim();
+}
+
   const data = await response.json();
-  const content = data.choices?.[0]?.message?.content || '';
+  const rawContent = data.choices?.[0]?.message?.content || '';
+  const content = cleanReasoning(rawContent);
   const servedModel = data.model || model;
   
   // Extract usage metadata from DO response or calculate fallback

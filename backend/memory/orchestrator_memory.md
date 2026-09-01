@@ -82,3 +82,6 @@
 
 ## Session Extract: 2026-08-24
 - User's professional role is at the United Nations, focusing on digital and emerging technologies cooperation to ensure AI and other technologies benefit everyone.
+
+## Session Extract: 2026-08-29
+*   **Digital Guide URL Structure:** The correct format for personalized digital guest guides is `https://www.tra-montiemare.it/guest?code=[access_code]`.

@@ -520,9 +520,13 @@ await completeTaskSpace(task.name, { keep: false });
 
   return {
     status: 'success',
-    results,
+    totalScanned: results.totalScanned,
+    offeringsFound: results.offeringsFound,
     target: targetPosts,
     verifiedCount: finalVerified,
+    commented: results.commented,
+    skippedDuplicatesCount: results.skippedAlreadyCommented.length,
+    skippedNonOfferingsCount: results.skippedNotOffering.length,
     summary: `### 🎯 Facebook Hosts Outreach Completed\n\n- **Target Group**: [Digital Nomad Accommodation & Co-housing](${targetUrl})\n- **Service Promoted**: [Host Landing Page](https://host.frastab.com/)\n- **Feed Sorted By**: Newest\n- **Posts Scanned**: ${results.totalScanned}\n- **House Offerings Identified**: ${results.offeringsFound}\n- **Target Verified Comments**: ${targetPosts}\n- **Comments Posted (Verified)**: ${finalVerified} (message: \`${commentText}\`)\n- **Comments Unverified**: ${results.commented.filter(c => c.status === 'unverified').length}\n- **Duplicate Posts Skipped**: ${results.skippedAlreadyCommented.length}\n- **Seeking/Non-Offering Posts Skipped**: ${results.skippedNotOffering.length}\n\n${results.commented.length > 0 ? '#### 📬 Commented Posts:\n' + results.commented.map((c, idx) => `${idx + 1}. **${c.author}**: [View Post](${c.permalink})\n   > *"${c.snippet}"* (status: ${c.status})`).join('\n') : '_No new offering posts required comments in this run._'}\n\n${finalVerified < targetPosts ? `⚠️ **Shortfall:** Only ${finalVerified} verified comments were achieved against the target of ${targetPosts}. This usually means there were not enough fresh offering posts available in the feed.` : ''}`
   };
 }

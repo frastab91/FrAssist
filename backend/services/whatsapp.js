@@ -6,11 +6,11 @@ import path from 'path';
 import { open } from 'sqlite';
 import sqlite3 from 'sqlite3';
 import { VertexAI } from '@google-cloud/vertexai';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { formatKnowledgeBaseContext } from './rag.js';
 import { createChatCompletion as callDigitalOcean } from './digitalocean.js';
 import { recordTokenUsage, estimateTokens } from './tokenTracker.js';
 import { fetchOllamaCloudWithFailover } from './ollama_client.js';
+import { generateGeminiContent, hasGeminiKey } from './geminiService.js';
 
 let sock = null;
 let ioInstance = null;
@@ -26,6 +26,18 @@ const vertexAI = new VertexAI({
   project: process.env.GOOGLE_CLOUD_PROJECT || 'myllm-460104',
   location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1'
 });
+
+export function cleanReasoningOutput(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
+    .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
+    .replace(/<think>[\s\S]*$/gi, '')
+    .replace(/<reasoning>[\s\S]*$/gi, '')
+    .replace(/<thought>[\s\S]*$/gi, '')
+    .trim();
+}
 
 export function resolveRealPhoneNumber(jidOrLid) {
   if (!jidOrLid) return '';
@@ -375,8 +387,28 @@ export async function evaluateAutoReply(guestMessage, contactName, senderPhone, 
     console.error('[WhatsApp Auto-Reply] Semantic RAG retrieval error from ChromaDB:', ragErr);
   }
 
-  if (!semanticKnowledge || !semanticKnowledge.trim()) {
-    console.log(`[WhatsApp Auto-Reply] No relevant house knowledge found in ChromaDB for: "${guestMessage}"`);
+  // Load canonical structured Scalea property, access, and logistics knowledge
+  let scaleaKnowledge = '';
+  try {
+    const kCandidates = [
+      path.join(process.cwd(), 'knowledge', 'tra-montiemare'),
+      path.join(process.cwd(), 'backend', 'knowledge', 'tra-montiemare'),
+      path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'knowledge', 'tra-montiemare')
+    ];
+    const kDir = kCandidates.find(p => fs.existsSync(p));
+    if (kDir) {
+      const files = ['access_and_checkin.md', 'properties.md', 'local_guide.md', 'reviews_and_faqs.md'];
+      scaleaKnowledge = files
+        .filter(f => fs.existsSync(path.join(kDir, f)))
+        .map(f => `--- CANONICAL DOCUMENT: ${f} ---\n${fs.readFileSync(path.join(kDir, f), 'utf8')}`)
+        .join('\n\n');
+    }
+  } catch (kErr) {
+    console.error('[WhatsApp Auto-Reply] Error loading structured Scalea knowledge:', kErr);
+  }
+
+  if ((!semanticKnowledge || !semanticKnowledge.trim()) && (!scaleaKnowledge || !scaleaKnowledge.trim())) {
+    console.log(`[WhatsApp Auto-Reply] No relevant house knowledge found for: "${guestMessage}"`);
     return { shouldReply: false, reason: 'NO_KNOWLEDGE_MATCH' };
   }
 
@@ -405,8 +437,11 @@ Message: "${guestMessage}"
 RECENT CONVERSATION CONTEXT (Chronological, last 5 messages):
 ${recentHistory || 'None (New Conversation)'}
 
-CHROMADB HOUSE & GUEST KNOWLEDGE (Semantic excerpts for Tra-Montiemare):
-${semanticKnowledge}
+CANONICAL SCALEA VACATION RENTAL KNOWLEDGE (Ground Truth: Access, Stairs, Videos, Properties, Logistics):
+${scaleaKnowledge || 'None'}
+
+SEMANTIC KNOWLEDGE BASE (ChromaDB vector matches):
+${semanticKnowledge || 'None'}
 
 CRITICAL RULES:
 1. DIRECT, IMMEDIATE ANSWERS (NO GATEKEEPING OR DEFERRALS):
@@ -464,6 +499,9 @@ CRITICAL RULES:
             { role: 'system', content: 'You are the digital concierge for Tra-Montiemare vacation rentals in Scalea hosted by Francesco & Enerlida.' },
             { role: 'user', content: strictPrompt }
           ],
+          options: {
+            num_predict: 2048
+          },
           stream: false
         })
       }, {
@@ -474,8 +512,8 @@ CRITICAL RULES:
       });
 
       const oData = await ollamaRes.json();
-      const content = oData.message?.content || '';
-      const thinking = oData.message?.thinking || '';
+      const content = cleanReasoningOutput(oData.message?.content || '');
+      const thinking = cleanReasoningOutput(oData.message?.thinking || '');
       replyText = (content.trim() !== '' ? content : (thinking.trim() !== '' ? thinking : '')).trim();
       const pIn = oData.prompt_eval_count || estimateTokens(strictPrompt);
       const pOut = oData.eval_count || estimateTokens(replyText);
@@ -519,18 +557,28 @@ CRITICAL RULES:
     }
     // 3. Google Gemini execution (also fallback for deprecated perplexity)
     else if (effectiveModel === 'gemini' || effectiveModel === 'perplexity' || effectiveModel.startsWith('gemini')) {
-      if (!vertexAI) {
-        throw new Error('Google Vertex AI is not initialized');
+      const gemModel = effectiveModel.startsWith('gemini:') ? effectiveModel.substring(7) : (effectiveModel === 'gemini-1.5-flash' ? 'gemini-3.5-flash-lite' : 'gemini-3.7-flash');
+      if (hasGeminiKey()) {
+        const gRes = await generateGeminiContent({
+          contents: strictPrompt,
+          model: gemModel,
+          systemInstruction: 'You are the digital concierge for Tra-Montiemare vacation rentals in Scalea hosted by Francesco & Enerlida.'
+        });
+        replyText = gRes.text?.trim() || '';
+        recordTokenUsage('whatsapp_concierge', gRes.usage?.promptTokens || 0, gRes.usage?.candidatesTokens || 0, gRes.usage?.totalTokens || 0, gRes.model).catch(() => {});
+      } else if (vertexAI) {
+        const model = vertexAI.preview.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        const result = await model.generateContent({
+          contents: [{ role: 'user', parts: [{ text: strictPrompt }] }],
+          systemInstruction: {
+            role: 'system',
+            parts: [{ text: 'You are the digital concierge for Tra-Montiemare vacation rentals in Scalea hosted by Francesco & Enerlida.' }]
+          }
+        });
+        replyText = result.response.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+      } else {
+        throw new Error('Neither GEMINI_API_KEY nor Google Vertex AI is configured');
       }
-      const model = vertexAI.preview.getGenerativeModel({ model: 'gemini-2.5-flash' });
-      const result = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: strictPrompt }] }],
-        systemInstruction: {
-          role: 'system',
-          parts: [{ text: 'You are the digital concierge for Tra-Montiemare vacation rentals in Scalea hosted by Francesco & Enerlida.' }]
-        }
-      });
-      replyText = result.response.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
     }
     // 4. Groq Fast Cloud LLM execution
     else if (effectiveModel.startsWith('groq') || effectiveModel.includes('gpt-oss') || effectiveModel.includes('qwen3.6')) {
@@ -561,20 +609,17 @@ CRITICAL RULES:
     }
     // 5. Google Gemini (Cloud API Key or Vertex AI)
     else {
-      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-      const geminiModelName = chosenModel === 'gemini-1.5-flash' ? 'gemini-1.5-flash' : 'gemini-2.5-flash';
+      const geminiModelName = chosenModel === 'gemini-1.5-flash' ? 'gemini-3.5-flash-lite' : 'gemini-3.7-flash';
 
-      if (apiKey) {
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: geminiModelName });
-        const result = await model.generateContent(strictPrompt);
-        replyText = result.response.text().trim();
-        const usageMeta = result.response.usageMetadata;
-        const gIn = usageMeta?.promptTokenCount || estimateTokens(strictPrompt);
-        const gOut = usageMeta?.candidatesTokenCount || estimateTokens(replyText);
-        recordTokenUsage('whatsapp_concierge', gIn, gOut, gIn + gOut, geminiModelName).catch(() => {});
-      } else {
-        const model = vertexAI.preview.getGenerativeModel({ model: geminiModelName });
+      if (hasGeminiKey()) {
+        const gRes = await generateGeminiContent({
+          contents: strictPrompt,
+          model: geminiModelName
+        });
+        replyText = gRes.text?.trim() || '';
+        recordTokenUsage('whatsapp_concierge', gRes.usage?.promptTokens || 0, gRes.usage?.candidatesTokens || 0, gRes.usage?.totalTokens || 0, gRes.model).catch(() => {});
+      } else if (vertexAI) {
+        const model = vertexAI.preview.getGenerativeModel({ model: 'gemini-2.5-flash' });
         const result = await model.generateContent({
           contents: [{ role: 'user', parts: [{ text: strictPrompt }] }]
         });
@@ -582,9 +627,11 @@ CRITICAL RULES:
         const usageMeta = result.response.usageMetadata;
         const gIn = usageMeta?.promptTokenCount || estimateTokens(strictPrompt);
         const gOut = usageMeta?.candidatesTokenCount || estimateTokens(replyText);
-        recordTokenUsage('whatsapp_concierge', gIn, gOut, gIn + gOut, geminiModelName).catch(() => {});
+        recordTokenUsage('whatsapp_concierge', gIn, gOut, gIn + gOut, 'gemini-2.5-flash').catch(() => {});
       }
     }
+
+    replyText = cleanReasoningOutput(replyText);
 
     if (!replyText || replyText.includes('[NO_KNOWLEDGE_MATCH]')) {
       console.log(`[WhatsApp Auto-Reply] Evaluator skipped for "${guestMessage}".`);
