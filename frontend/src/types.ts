@@ -108,6 +108,7 @@ export type CronJob = {
   status: 'active' | 'paused';
   lastRun?: string;
   timestamp?: string;
+  isRunning?: boolean;
 };
 
 export type TrackerOverview = {

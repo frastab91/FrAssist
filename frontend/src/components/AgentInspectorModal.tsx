@@ -17,8 +17,19 @@ export function AgentInspectorModal({
   setInspectorTab,
 }: AgentInspectorModalProps) {
   return (
-    <div className="modal-overlay">
-      <div className="modal-content inspector-modal">
+    <div 
+      className="modal-overlay" 
+      style={{ zIndex: 1200 }} 
+      onClick={() => setShowInspector(false)}
+    >
+      <div 
+        className="modal-content inspector-modal" 
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+          border: '1px solid #e2e8f0'
+        }}
+      >
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <Bot size={24} color="#3b82f6" />
@@ -93,30 +104,30 @@ export function AgentInspectorModal({
                         key={job.id} 
                         style={{ 
                           padding: '1rem', 
-                          background: 'rgba(255, 255, 255, 0.05)', 
+                          background: '#f8fafc', 
                           borderRadius: '8px', 
-                          border: '1px solid rgba(255, 255, 255, 0.1)' 
+                          border: '1px solid #e2e8f0' 
                         }}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                          <span style={{ fontWeight: 600, color: '#f1f5f9', fontSize: '0.95rem' }}>{job.name}</span>
+                          <span style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.95rem' }}>{job.name}</span>
                           <span style={{ 
                             fontSize: '0.75rem', 
                             padding: '2px 8px', 
                             borderRadius: '12px', 
-                            background: job.status === 'active' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(234, 179, 8, 0.2)',
-                            color: job.status === 'active' ? '#4ade80' : '#facc15',
-                            fontWeight: 500
+                            background: job.status === 'active' ? '#dcfce7' : '#fef3c7',
+                            color: job.status === 'active' ? '#15803d' : '#b45309',
+                            fontWeight: 600
                           }}>
                             ● {job.status.toUpperCase()}
                           </span>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#38bdf8', fontWeight: 500 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.8rem', color: '#64748b', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#2563eb', fontWeight: 500 }}>
                             <Clock size={13} /> {formatCronDescription(job.cron)}
                           </span>
                           <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                            (<code style={{ color: '#94a3b8' }}>{job.cron}</code>)
+                            (<code style={{ color: '#0f172a' }}>{job.cron}</code>)
                           </span>
                           {job.lastRun && (
                             <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
@@ -124,7 +135,7 @@ export function AgentInspectorModal({
                             </span>
                           )}
                         </div>
-                        <div style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: '1.4' }}>
+                        <div style={{ fontSize: '0.82rem', color: '#334155', lineHeight: '1.4' }}>
                           <strong>Execution Task:</strong> {job.task}
                         </div>
                       </div>

@@ -1348,6 +1348,124 @@ WORKFLOW: 1. open -> 2. snapshot (to read refs) -> 3. screenshot (to show user).
   ];
 }
 
+// =========================================================================
+// SECURITY GUARD & SANDBOX ENFORCEMENT
+// =========================================================================
+
+const WORKSPACE_ROOT = path.resolve(process.cwd());
+const PARENT_PROJECTS_DIR = path.resolve(path.join(process.cwd(), '..'));
+
+const BLOCKED_SYSTEM_PATHS = [
+  /^\/System/i,
+  /^\/Library/i,
+  /^\/usr/i,
+  /^\/bin/i,
+  /^\/sbin/i,
+  /^\/etc/i,
+  /^\/var/i,
+  /^\/private/i,
+  /^\/dev/i,
+  /^\/opt/i,
+  /^\/Applications/i,
+  /^\/Volumes/i,
+  /^\/Users\/[^\/]+\/\.ssh/i,
+  /^\/Users\/[^\/]+\/\.aws/i,
+  /^\/Users\/[^\/]+\/\.gnupg/i,
+  /^\/Users\/[^\/]+\/\.config/i,
+  /^\/Users\/[^\/]+\/\.bash/i,
+  /^\/Users\/[^\/]+\/\.zsh/i,
+  /^\/Users\/[^\/]+\/Library/i
+];
+
+function normalizeHomePath(p) {
+  if (!p || typeof p !== 'string') return '';
+  const trimmed = p.trim();
+  if (trimmed === '~' || trimmed.startsWith('~/' || trimmed.startsWith('~' + path.sep))) {
+    return path.join(os.homedir(), trimmed.slice(1));
+  }
+  return trimmed;
+}
+
+function isPathSafe(targetPath) {
+  if (!targetPath || typeof targetPath !== 'string') return false;
+  const normalized = normalizeHomePath(targetPath);
+  const resolved = path.resolve(normalized);
+
+  for (const pattern of BLOCKED_SYSTEM_PATHS) {
+    if (pattern.test(resolved)) {
+      return false;
+    }
+  }
+
+  // Must be strictly within workspace or parent projects directory
+  const isInsideWorkspace = resolved === WORKSPACE_ROOT || resolved.startsWith(WORKSPACE_ROOT + path.sep);
+  const isInsideParent = resolved === PARENT_PROJECTS_DIR || resolved.startsWith(PARENT_PROJECTS_DIR + path.sep);
+
+  return isInsideWorkspace || isInsideParent;
+}
+
+function validateCommandSafety(cmd) {
+  if (!cmd || typeof cmd !== 'string') {
+    return { safe: false, reason: 'Command must be a non-empty string.' };
+  }
+
+  const trimmed = cmd.trim();
+
+  // 1. Destructive delete operations targeting root or system paths
+  const destructiveDeletePatterns = [
+    /\brm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+|-[a-zA-Z]*f[a-zA-Z]*\s+)*\s*(\/|\/\*|~\s*$|~\*|\$HOME|\.\.\/\.\.)/i,
+    /\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+(\/|~|\$HOME|\/System|\/Library|\/usr|\/etc|\/var)/i,
+    /\brmdir\s+(\/|~|\$HOME|\/System|\/Library|\/usr|\/etc|\/var)/i,
+    /\bfind\s+\/\s+-delete\b/i,
+    /\bfind\s+\/\s+-exec\s+rm\b/i
+  ];
+
+  for (const pattern of destructiveDeletePatterns) {
+    if (pattern.test(trimmed)) {
+      return { safe: false, reason: 'Destructive deletion operations targeting root, system paths, or user home directory are strictly prohibited.' };
+    }
+  }
+
+  // 2. Privilege escalation & disk/system modification
+  const privilegePatterns = [
+    /\bsudo\b/i,
+    /\bsu\b\s+-?/i,
+    /\bdoas\b/i,
+    /\bchmod\s+(-R\s+)?(777|000|u\+s)\s+(\/|~|\$HOME|\/System|\/Library)/i,
+    /\bchown\s+(-R\s+)?.*\s+(\/|~|\$HOME|\/System|\/Library)/i,
+    /\bmkfs\b/i,
+    /\bdd\s+if=/i,
+    /\bfdisk\b/i,
+    /\bshutdown\b/i,
+    /\breboot\b/i,
+    /\bhalt\b/i,
+    /\blaunchctl\b/i,
+    /:\(\)\s*\{/ // fork bomb
+  ];
+
+  for (const pattern of privilegePatterns) {
+    if (pattern.test(trimmed)) {
+      return { safe: false, reason: 'Privilege escalation, raw disk writes, or system control operations are strictly prohibited.' };
+    }
+  }
+
+  // 3. Unconstrained root-level scanning outside workspace
+  const rootScanPatterns = [
+    /\bfind\s+\/(?!\S*(Users\/[^\/]+\/Desktop\/Progetti|Volumes|node_modules))\s/i,
+    /\bfind\s+(\/System|\/Library|\/usr|\/etc|\/var|\/private)\b/i,
+    /\bls\s+\/(?!\S*Users\/[^\/]+\/Desktop\/Progetti)\s*$/i,
+    /\bdu\s+\/(?!\S*Users\/[^\/]+\/Desktop\/Progetti)\b/i
+  ];
+
+  for (const pattern of rootScanPatterns) {
+    if (pattern.test(trimmed)) {
+      return { safe: false, reason: 'Unconstrained root-level scans (e.g. "find /") outside project directories are blocked.' };
+    }
+  }
+
+  return { safe: true };
+}
+
 async function executeTool(call, socket, sessionId = 'session_default') {
   const name = call.name;
   const args = call.args;
@@ -1362,9 +1480,23 @@ async function executeTool(call, socket, sessionId = 'session_default') {
 
   try {
     if (name === 'run_command') {
+      const command = (args.command || '').trim();
+      const check = validateCommandSafety(command);
+      if (!check.safe) {
+        console.warn(`[SECURITY BLOCKED] Command rejected: "${command}". Reason: ${check.reason}`);
+        if (socket) {
+          socket.emit('tool_output', {
+            tool: 'run_command',
+            content: `⛔ Security Policy Violation: ${check.reason}\nExecution blocked.`,
+            type: 'stderr'
+          });
+        }
+        return { error: `Security Policy Violation: ${check.reason}` };
+      }
+
       return new Promise((resolve) => {
         let output = '';
-        const child = spawn('bash', ['-c', args.command]);
+        const child = spawn('bash', ['-c', command], { cwd: WORKSPACE_ROOT });
         
         child.stdout.on('data', (data) => {
           const str = data.toString();
@@ -1398,6 +1530,12 @@ async function executeTool(call, socket, sessionId = 'session_default') {
         ];
         const found = candidates.find(c => fs.existsSync(c));
         if (found) filePath = found;
+      }
+
+      // Security check: ensure path is within safe project workspace
+      if (!isPathSafe(filePath)) {
+        console.warn(`[SECURITY BLOCKED] File access rejected: "${filePath}"`);
+        return { error: `Security Violation: Access to path "${rawPath}" outside the project workspace is blocked.` };
       }
 
       if (args.action === 'read') {
@@ -3766,41 +3904,52 @@ const orchestrator = new Agent('orchestrator', path.join(process.cwd(), 'agents'
 agentInstances.set('orchestrator', orchestrator);
 
 const scheduledCronTasks = new Map();
+const runningJobIds = new Set();
 
 function scheduleCronJob(jobId, cronExpr, task, jobName, agentId = 'orchestrator') {
   const taskObj = cron.schedule(cronExpr, async () => {
     console.log(`[Job ${jobId}] Running: ${jobName || 'Unnamed'} (Agent: ${agentId})`);
-    const db = await dbPromise;
-    await db.run('UPDATE scheduled_jobs SET lastRun = ? WHERE id = ?', [new Date().toISOString(), jobId]);
-    
-    const mockSocket = {
-      emit: async (event, data) => {
-        io.emit(event, data);
-        if (event === 'agent_message' && !data.isTool) {
-          if (lastTelegramChatId && tgBot) {
-            const header = `🤖 *[${jobName || 'Scheduled Job'}]* (${agentId})\n\n`;
-            const modifiedData = {
-              ...data,
-              content: data.content ? `${header}${data.content}` : ''
-            };
-            await processTelegramAgentMessage(tgBot.telegram, lastTelegramChatId, modifiedData);
+    runningJobIds.add(Number(jobId));
+    getTrackerOverview().then(overview => io.emit('tracker_update', overview));
+
+    try {
+      const db = await dbPromise;
+      await db.run('UPDATE scheduled_jobs SET lastRun = ? WHERE id = ?', [new Date().toISOString(), jobId]);
+      
+      const mockSocket = {
+        emit: async (event, data) => {
+          io.emit(event, data);
+          if (event === 'agent_message' && !data.isTool) {
+            if (lastTelegramChatId && tgBot) {
+              const header = `🤖 *[${jobName || 'Scheduled Job'}]* (${agentId})\n\n`;
+              const modifiedData = {
+                ...data,
+                content: data.content ? `${header}${data.content}` : ''
+              };
+              await processTelegramAgentMessage(tgBot.telegram, lastTelegramChatId, modifiedData);
+            }
           }
         }
+      };
+      
+      sendLog(mockSocket, agentId, 'job_start', `Running scheduled job: ${jobName || jobId}`);
+      let targetAgent = agentInstances.get(agentId);
+      if (!targetAgent) {
+        const systemPath = path.join(process.cwd(), 'agents', agentId, 'system.md');
+        if (fs.existsSync(systemPath)) {
+          targetAgent = new Agent(agentId, systemPath);
+          agentInstances.set(agentId, targetAgent);
+        } else {
+          targetAgent = orchestrator;
+        }
       }
-    };
-    
-    sendLog(mockSocket, agentId, 'job_start', `Running scheduled job: ${jobName || jobId}`);
-    let targetAgent = agentInstances.get(agentId);
-    if (!targetAgent) {
-      const systemPath = path.join(process.cwd(), 'agents', agentId, 'system.md');
-      if (fs.existsSync(systemPath)) {
-        targetAgent = new Agent(agentId, systemPath);
-        agentInstances.set(agentId, targetAgent);
-      } else {
-        targetAgent = orchestrator;
-      }
+      await targetAgent.processMessage(`[SCHEDULED JOB] ${task}`, mockSocket);
+    } catch (err) {
+      console.error(`Error running scheduled cron job ${jobId}:`, err);
+    } finally {
+      runningJobIds.delete(Number(jobId));
+      getTrackerOverview().then(overview => io.emit('tracker_update', overview));
     }
-    await targetAgent.processMessage(`[SCHEDULED JOB] ${task}`, mockSocket);
   });
   scheduledCronTasks.set(jobId, taskObj);
 }
@@ -3850,12 +3999,24 @@ async function runJobNow(jobId) {
       targetAgent = orchestrator;
     }
   }
-  // Run asynchronously
-  targetAgent.processMessage(`[SCHEDULED JOB MANUAL TRIGGER] ${job.task}`, mockSocket).catch(err => {
-    console.error(`Error running job ${jobId}:`, err);
-  });
+
+  runningJobIds.add(Number(jobId));
   getTrackerOverview().then(overview => io.emit('tracker_update', overview));
-  return { status: 'Job execution started', jobId };
+
+  // Run asynchronously with lifecycle tracking
+  (async () => {
+    try {
+      await targetAgent.processMessage(`[SCHEDULED JOB MANUAL TRIGGER] ${job.task}`, mockSocket);
+    } catch (err) {
+      console.error(`Error running job ${jobId}:`, err);
+    } finally {
+      runningJobIds.delete(Number(jobId));
+      const overview = await getTrackerOverview();
+      io.emit('tracker_update', overview);
+    }
+  })();
+
+  return { status: 'Job execution started', jobId, isRunning: true };
 }
 
 async function getTrackerOverview() {
@@ -3894,7 +4055,11 @@ async function getTrackerOverview() {
   // 3. Scheduled jobs
   let jobs = [];
   try {
-    jobs = await db.all('SELECT * FROM scheduled_jobs ORDER BY id DESC');
+    const rawJobs = await db.all('SELECT * FROM scheduled_jobs ORDER BY id DESC');
+    jobs = rawJobs.map(j => ({
+      ...j,
+      isRunning: runningJobIds.has(Number(j.id))
+    }));
   } catch (e) {
     console.error('Error fetching scheduled_jobs:', e);
   }
@@ -6013,7 +6178,7 @@ app.get('/api/jobs', async (req, res) => {
   try {
     const db = await dbPromise;
     const jobs = await db.all('SELECT * FROM scheduled_jobs ORDER BY id DESC');
-    res.json(jobs);
+    res.json(jobs.map(j => ({ ...j, isRunning: runningJobIds.has(Number(j.id)) })));
   } catch (e) {
     res.status(500).json({ error: 'Failed to fetch jobs' });
   }

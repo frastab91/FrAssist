@@ -299,7 +299,11 @@ try {
   cliLog('ERROR:' + err.message);
 }
 
-await completeTaskSpace(task.name, { keep: false });
+try {
+  if (typeof task !== 'undefined' && task) {
+    await completeTaskSpace(task.name || task.id || task);
+  }
+} catch (e) {}
 `;
 
   log(`🌐 Inspecting group feed via Ego Browser (sorted by NEWEST, scanning up to ${maxScan} posts)...`);
@@ -400,7 +404,6 @@ await completeTaskSpace(task.name, { keep: false });
 
     const commentScript = `
 const targetUrl = ${JSON.stringify(targetUrl)};
-const postIndex = ${item.domIndex};
 const commentText = ${JSON.stringify(commentText)};
 
 const task = await useOrCreateTaskSpace('FB Hosts Outreach Comment');
@@ -408,10 +411,10 @@ try {
   await openOrReuseTab(targetUrl, { wait: true, timeout: 20 });
   await wait(2);
 
-  const setupRes = await js(String.raw\`(() => {
+  const setupRes = await js(\`(() => {
     const feed = document.querySelector('div[role="feed"]');
     if (!feed) return { error: 'Feed not found' };
-    const postDiv = feed.children[\\${postIndex}];
+    const postDiv = feed.children[${item.domIndex}];
     if (!postDiv) return { error: 'Post div not found' };
 
     let textbox = postDiv.querySelector('div[role="textbox"]');
@@ -442,14 +445,14 @@ try {
   await wait(3);
 
   // Re-read the post to verify our comment appears
-  const verifyRes = await js(String.raw\`(() => {
+  const verifyRes = await js(\`(() => {
     const feed = document.querySelector('div[role="feed"]');
     if (!feed) return { error: 'Feed not found' };
-    const postDiv = feed.children[\\${postIndex}];
+    const postDiv = feed.children[${item.domIndex}];
     if (!postDiv) return { error: 'Post div not found' };
 
     const postText = (postDiv.innerText || '').toLowerCase();
-    const needle = \\${JSON.stringify(commentText.toLowerCase())};
+    const needle = ${JSON.stringify(commentText.toLowerCase())};
     const found = postText.includes(needle);
     return { found, postTextSnippet: postText.slice(0, 300) };
   })()\`);
@@ -465,7 +468,11 @@ try {
   cliLog('COMMENT_ERROR:' + e.message);
 }
 
-await completeTaskSpace(task.name, { keep: false });
+try {
+  if (typeof task !== 'undefined' && task) {
+    await completeTaskSpace(task.name || task.id || task);
+  }
+} catch (e) {}
 `;
 
     try {

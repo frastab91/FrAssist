@@ -1317,15 +1317,6 @@ export default function App() {
         />
       )}
 
-      {showInspector && selectedAgentDetails && (
-        <AgentInspectorModal
-          selectedAgentDetails={selectedAgentDetails}
-          setShowInspector={setShowInspector}
-          inspectorTab={inspectorTab}
-          setInspectorTab={setInspectorTab}
-        />
-      )}
-
       {showUsageDashboard && (
         <UsageDashboard
           detailedStats={detailedStats}
@@ -1333,11 +1324,6 @@ export default function App() {
           onClose={() => setShowUsageDashboard(false)}
         />
       )}
-
-      <ImageModal
-        enlargedImage={enlargedImage}
-        setEnlargedImage={setEnlargedImage}
-      />
 
       <MissionControlModal
         isOpen={showMissionControl}
@@ -1360,6 +1346,20 @@ export default function App() {
         keyStatus={keyStatus}
         socket={socket}
         ollamaStatus={ollamaStatus}
+      />
+
+      {showInspector && selectedAgentDetails && (
+        <AgentInspectorModal
+          selectedAgentDetails={selectedAgentDetails}
+          setShowInspector={setShowInspector}
+          inspectorTab={inspectorTab}
+          setInspectorTab={setInspectorTab}
+        />
+      )}
+
+      <ImageModal
+        enlargedImage={enlargedImage}
+        setEnlargedImage={setEnlargedImage}
       />
     </div>
   );

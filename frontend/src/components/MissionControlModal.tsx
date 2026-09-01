@@ -17,7 +17,8 @@ import {
   ChevronRight,
   ChevronDown,
   Calendar,
-  Eye
+  Eye,
+  Loader2
 } from 'lucide-react';
 import type { TrackerOverview } from '../types';
 import { Socket } from 'socket.io-client';
@@ -51,6 +52,9 @@ export function MissionControlModal({
   // Expanded task previews
   const [expandedTasks, setExpandedTasks] = useState<{ [agentId: string]: boolean }>({});
 
+  // Triggering job tracking
+  const [triggeringJobIds, setTriggeringJobIds] = useState<Set<number>>(new Set());
+
   // New Cron Form state
   const [showNewJobModal, setShowNewJobModal] = useState(false);
   const [newJobName, setNewJobName] = useState('');
@@ -75,7 +79,7 @@ export function MissionControlModal({
 
   const showNotification = (msg: string) => {
     setActionMessage(msg);
-    setTimeout(() => setActionMessage(null), 4000);
+    setTimeout(() => setActionMessage(null), 5000);
   };
 
   const handleApprovalAction = async (id: number, action: 'approve' | 'reject' | 'edit') => {
@@ -118,15 +122,27 @@ export function MissionControlModal({
     }
   };
 
-  const handleTriggerJob = async (jobId: number) => {
+  const handleTriggerJob = async (job: { id: number; name?: string; agentId?: string }) => {
+    setTriggeringJobIds(prev => new Set(prev).add(job.id));
+    showNotification(`🚀 Triggered "${job.name || `Job #${job.id}`}"! Agent '${job.agentId || 'orchestrator'}' is running this in background.`);
     try {
-      const res = await fetch(`/api/jobs/${jobId}/run-now`, { method: 'POST' });
+      const res = await fetch(`/api/jobs/${job.id}/run-now`, { method: 'POST' });
       if (res.ok) {
-        showNotification(`Job #${jobId} triggered manually in background!`);
         onRefresh();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showNotification(`Failed to trigger job: ${data.error || res.statusText}`);
       }
     } catch (err: any) {
       showNotification(`Failed to trigger job: ${err.message}`);
+    } finally {
+      setTimeout(() => {
+        setTriggeringJobIds(prev => {
+          const next = new Set(prev);
+          next.delete(job.id);
+          return next;
+        });
+      }, 1500);
     }
   };
 
@@ -347,17 +363,37 @@ export function MissionControlModal({
         {actionMessage && (
           <div style={{
             background: '#eff6ff',
-            color: '#1d4ed8',
-            padding: '0.6rem 1.25rem',
+            color: '#1e40af',
+            padding: '0.65rem 1.25rem',
             fontSize: '0.85rem',
             fontWeight: 500,
             borderBottom: '1px solid #bfdbfe',
             display: 'flex',
             alignItems: 'center',
-            gap: '0.5rem'
+            justifyContent: 'space-between',
+            gap: '0.5rem',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
           }}>
-            <CheckCircle2 size={16} color="#2563eb" />
-            <span>{actionMessage}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <CheckCircle2 size={16} color="#2563eb" style={{ flexShrink: 0 }} />
+              <span>{actionMessage}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActionMessage(null)}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                color: '#64748b',
+                cursor: 'pointer',
+                padding: '2px',
+                display: 'flex',
+                alignItems: 'center'
+              }}
+              title="Dismiss notification"
+            >
+              <X size={14} />
+            </button>
           </div>
         )}
 
@@ -1191,159 +1227,247 @@ export function MissionControlModal({
                       );
                     }
 
+                    const isJobRunning = !!job.isRunning || triggeringJobIds.has(job.id);
+
                     return (
                       <div 
                         key={job.id}
                         style={{
-                          background: '#ffffff',
+                          background: isJobRunning ? '#f8faff' : '#ffffff',
                           borderRadius: '12px',
-                          border: '1px solid #e2e8f0',
+                          border: isJobRunning ? '1.5px solid #93c5fd' : '1px solid #e2e8f0',
+                          boxShadow: isJobRunning ? '0 2px 10px rgba(59, 130, 246, 0.08)' : 'none',
                           padding: '1.1rem 1.25rem',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.65rem',
+                          opacity: isActive ? 1 : 0.7,
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        <div style={{
                           display: 'flex',
                           justifyContent: 'space-between',
                           alignItems: 'center',
-                          gap: '1rem',
-                          opacity: isActive ? 1 : 0.7
-                        }}
-                      >
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-                            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: '#0f172a' }}>
-                              {job.name || 'Unnamed Job'}
-                            </h4>
-                            <span style={{
-                              fontSize: '0.7rem',
-                              padding: '2px 7px',
-                              borderRadius: '6px',
-                              background: isActive ? '#dcfce7' : '#f1f5f9',
-                              color: isActive ? '#15803d' : '#64748b',
-                              fontWeight: 600,
-                              textTransform: 'uppercase'
-                            }}>
-                              {job.status}
-                            </span>
-                            <span style={{
-                              fontSize: '0.75rem',
-                              fontWeight: 500,
-                              background: '#eff6ff',
-                              color: '#1d4ed8',
-                              padding: '2px 8px',
-                              borderRadius: '6px',
-                              border: '1px solid #bfdbfe',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '0.3rem'
-                            }}>
-                              <Clock size={12} />
-                              {formatCronDescription(job.cron)}
-                            </span>
-                            <span style={{
-                              fontSize: '0.7rem',
-                              fontFamily: 'monospace',
-                              background: '#f8fafc',
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              border: '1px solid #e2e8f0',
-                              color: '#64748b'
-                            }} title="Raw cron expression">
-                              {job.cron}
-                            </span>
+                          gap: '1rem'
+                        }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                              <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: '#0f172a' }}>
+                                {job.name || 'Unnamed Job'}
+                              </h4>
+                              {isJobRunning ? (
+                                <span style={{
+                                  fontSize: '0.7rem',
+                                  padding: '2px 8px',
+                                  borderRadius: '6px',
+                                  background: '#eff6ff',
+                                  color: '#1d4ed8',
+                                  border: '1px solid #93c5fd',
+                                  fontWeight: 700,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.3rem',
+                                  boxShadow: '0 0 8px rgba(59, 130, 246, 0.2)'
+                                }}>
+                                  <Loader2 size={11} className="stage-icon icon-spin" style={{ color: '#2563eb' }} />
+                                  RUNNING NOW
+                                </span>
+                              ) : (
+                                <span style={{
+                                  fontSize: '0.7rem',
+                                  padding: '2px 7px',
+                                  borderRadius: '6px',
+                                  background: isActive ? '#dcfce7' : '#f1f5f9',
+                                  color: isActive ? '#15803d' : '#64748b',
+                                  fontWeight: 600,
+                                  textTransform: 'uppercase'
+                                }}>
+                                  {job.status}
+                                </span>
+                              )}
+                              <span style={{
+                                fontSize: '0.75rem',
+                                fontWeight: 500,
+                                background: '#eff6ff',
+                                color: '#1d4ed8',
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid #bfdbfe',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.3rem'
+                              }}>
+                                <Clock size={12} />
+                                {formatCronDescription(job.cron)}
+                              </span>
+                              <span style={{
+                                fontSize: '0.7rem',
+                                fontFamily: 'monospace',
+                                background: '#f8fafc',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                border: '1px solid #e2e8f0',
+                                color: '#64748b'
+                              }} title="Raw cron expression">
+                                {job.cron}
+                              </span>
+                            </div>
+
+                            <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.8rem', color: '#475569' }}>
+                              Agent: <span style={{ fontWeight: 600 }}>{job.agentId || 'orchestrator'}</span> • Task: {job.task}
+                            </p>
+
+                            {job.lastRun && (
+                              <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
+                                Last Run: {new Date(job.lastRun).toLocaleString()}
+                              </p>
+                            )}
                           </div>
 
-                          <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.8rem', color: '#475569' }}>
-                            Agent: <span style={{ fontWeight: 600 }}>{job.agentId || 'orchestrator'}</span> • Task: {job.task}
-                          </p>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <button
+                              type="button"
+                              disabled={isJobRunning}
+                              onClick={() => handleTriggerJob(job)}
+                              title={isJobRunning ? "Job is actively running in background" : "Run immediately in background"}
+                              style={{
+                                padding: '0.4rem 0.75rem',
+                                borderRadius: '8px',
+                                border: isJobRunning ? '1px solid #93c5fd' : '1px solid #bfdbfe',
+                                background: isJobRunning ? '#dbeafe' : '#eff6ff',
+                                color: isJobRunning ? '#1e40af' : '#1d4ed8',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                cursor: isJobRunning ? 'not-allowed' : 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.35rem',
+                                boxShadow: isJobRunning ? '0 0 0 2px rgba(59, 130, 246, 0.15)' : 'none',
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              {isJobRunning ? (
+                                <>
+                                  <Loader2 size={12} className="stage-icon icon-spin" style={{ color: '#1e40af' }} />
+                                  Running...
+                                </>
+                              ) : (
+                                <>
+                                  <Play size={12} fill="#1d4ed8" />
+                                  Run Now
+                                </>
+                              )}
+                            </button>
 
-                          {job.lastRun && (
-                            <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
-                              Last Run: {new Date(job.lastRun).toLocaleString()}
-                            </p>
-                          )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStartEditJob(job);
+                              }}
+                              title="Edit Job"
+                              style={{
+                                padding: '0.4rem 0.75rem',
+                                borderRadius: '8px',
+                                border: '1px solid #cbd5e1',
+                                background: '#ffffff',
+                                color: '#1e293b',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.3rem',
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                              }}
+                            >
+                              <Edit3 size={13} color="#2563eb" />
+                              Edit
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleToggleJob(job.id)}
+                              title={isActive ? 'Pause Job' : 'Resume Job'}
+                              style={{
+                                padding: '0.4rem 0.65rem',
+                                borderRadius: '8px',
+                                border: '1px solid #e2e8f0',
+                                background: '#f8fafc',
+                                color: '#475569',
+                                fontSize: '0.75rem',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {isActive ? <Pause size={14} /> : <Play size={14} />}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteJob(job.id)}
+                              title="Delete Job"
+                              style={{
+                                padding: '0.4rem 0.65rem',
+                                borderRadius: '8px',
+                                border: '1px solid #fee2e2',
+                                background: '#fff1f2',
+                                color: '#e11d48',
+                                fontSize: '0.75rem',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <button
-                            type="button"
-                            onClick={() => handleTriggerJob(job.id)}
-                            title="Run immediately in background"
-                            style={{
-                              padding: '0.4rem 0.75rem',
-                              borderRadius: '8px',
-                              border: '1px solid #bfdbfe',
-                              background: '#eff6ff',
-                              color: '#1d4ed8',
-                              fontSize: '0.75rem',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '0.3rem'
-                            }}
-                          >
-                            <Play size={12} fill="#1d4ed8" />
-                            Run Now
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleStartEditJob(job);
-                            }}
-                            title="Edit Job"
-                            style={{
-                              padding: '0.4rem 0.75rem',
-                              borderRadius: '8px',
-                              border: '1px solid #cbd5e1',
-                              background: '#ffffff',
-                              color: '#1e293b',
-                              fontSize: '0.75rem',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '0.3rem',
-                              boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-                            }}
-                          >
-                            <Edit3 size={13} color="#2563eb" />
-                            Edit
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleToggleJob(job.id)}
-                            title={isActive ? 'Pause Job' : 'Resume Job'}
-                            style={{
-                              padding: '0.4rem 0.65rem',
-                              borderRadius: '8px',
-                              border: '1px solid #e2e8f0',
-                              background: '#f8fafc',
-                              color: '#475569',
-                              fontSize: '0.75rem',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            {isActive ? <Pause size={14} /> : <Play size={14} />}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteJob(job.id)}
-                            title="Delete Job"
-                            style={{
-                              padding: '0.4rem 0.65rem',
-                              borderRadius: '8px',
-                              border: '1px solid #fee2e2',
-                              background: '#fff1f2',
-                              color: '#e11d48',
-                              fontSize: '0.75rem',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
+                        {isJobRunning && (
+                          <div style={{
+                            padding: '0.45rem 0.75rem',
+                            borderRadius: '6px',
+                            background: '#eff6ff',
+                            border: '1px solid #bfdbfe',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '0.5rem',
+                            fontSize: '0.78rem',
+                            color: '#1e40af'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <Loader2 size={13} className="stage-icon icon-spin" style={{ color: '#2563eb', flexShrink: 0 }} />
+                              <span>Task is executing right now with agent <strong>{job.agentId || 'orchestrator'}</strong> in the background.</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onInspectAgent) {
+                                  onInspectAgent(job.agentId || 'orchestrator');
+                                } else {
+                                  setActiveTab('agents');
+                                }
+                              }}
+                              style={{
+                                padding: '3px 8px',
+                                borderRadius: '4px',
+                                border: '1px solid #93c5fd',
+                                background: '#ffffff',
+                                color: '#1d4ed8',
+                                fontSize: '0.72rem',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '3px'
+                              }}
+                            >
+                              <Eye size={12} />
+                              Inspect Live Agent Activity
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
