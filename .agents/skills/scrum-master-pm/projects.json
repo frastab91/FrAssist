@@ -1,0 +1,1574 @@
+[
+  {
+    "name": "Aicapacityfinancing-main",
+    "path": "/Users/francescostabilito/Desktop/Progetti/Aicapacityfinancing-main",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "Framer Motion",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build"
+    },
+    "rule_files": [],
+    "description": "# AI Capacity Financing v0.1",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: initialize React application with Vite, Tailwind CSS, and global styles (8 months ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "Aivaluechainpowerknowledge",
+    "path": "/Users/francescostabilito/Desktop/Progetti/Aivaluechainpowerknowledge",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "Lucide/Heroicons",
+      "Framer Motion",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build"
+    },
+    "rule_files": [],
+    "description": "# AI Value Chain - equity",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: add home link to header navigation (8 weeks ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "Countrykickstarterpackageapp",
+    "path": "/Users/francescostabilito/Desktop/Progetti/Countrykickstarterpackageapp",
+    "framework": "Vite",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "Framer Motion",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [],
+    "services": [
+      "Gemini API"
+    ],
+    "scripts": {
+      "build": "vite build",
+      "dev": "vite"
+    },
+    "rule_files": [],
+    "description": "# Country Kick-starter Package App",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "refactor: simplify objective labels in InputPanel component for clarity (5 months ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "Dataequity",
+    "path": "/Users/francescostabilito/Desktop/Progetti/Dataequity",
+    "framework": "Vite",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "Framer Motion",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "build": "vite build",
+      "dev": "vite"
+    },
+    "rule_files": [],
+    "description": "An immersive scrollytelling essay on data equity, governance, and the datafied society.",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: implement build distribution artifacts and update UI styles (8 weeks ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "Dpintro",
+    "path": "/Users/francescostabilito/Desktop/Progetti/Dpintro",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "Lucide/Heroicons",
+      "Framer Motion",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build"
+    },
+    "rule_files": [],
+    "description": "# DPI Scrollytelling",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: add Vibe Playground home link to header navigation (8 weeks ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "FrAssist",
+    "path": "/Users/francescostabilito/Desktop/Progetti/FrAssist",
+    "framework": "Node.js",
+    "languages": [
+      "JavaScript",
+      "Python"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "install:all": "npm install && npm install --prefix backend && npm install --prefix frontend",
+      "dev": "concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+      "hosts": "node backend/scripts/run_fb_hosts.js",
+      "hosts:dry": "node backend/scripts/run_fb_hosts.js --dry-run",
+      "chrome": "open -a \"Google Chrome\" --args --remote-debugging-port=9222 --user-data-dir=\"$HOME/Library/Application Support/Google/Chrome/FrAssist\""
+    },
+    "rule_files": [
+      "GEMINI.md",
+      ".agents/"
+    ],
+    "description": "A sophisticated, multi-modal orchestration system that uses both Google Gemini (Flash 2.5 Lite) and local Ollama (Gemma)",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: implement message bookmarking and copy functionality with enhanced ChatArea layout and persistence (7 minutes ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "Gdcadminpanel",
+    "path": "/Users/francescostabilito/Desktop/Progetti/Gdcadminpanel",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "Lucide/Heroicons",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build"
+    },
+    "rule_files": [],
+    "description": "# Admin Panel Creation",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: overhaul initiatives entity with new fields, async selectors, and UNDC navigation (9 months ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "Live-work-repeat",
+    "path": "/Users/francescostabilito/Desktop/Progetti/Live-work-repeat",
+    "framework": "Unknown",
+    "languages": [
+      "Unknown"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {},
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": false,
+      "branch": null,
+      "last_commit": null,
+      "clean": true
+    }
+  },
+  {
+    "name": "ODET-AMA",
+    "path": "/Users/francescostabilito/Desktop/Progetti/ODET-AMA",
+    "framework": "Next.js (^15.1.7)",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "Framer Motion"
+    ],
+    "database": [],
+    "services": [
+      "Gemini API"
+    ],
+    "scripts": {
+      "dev": "next dev",
+      "tunnel": "cloudflared tunnel --url http://localhost:3000",
+      "kb:ingest": "tsx --env-file=.env.local scripts/ingest-kb.ts",
+      "build": "next build",
+      "start": "next start"
+    },
+    "rule_files": [],
+    "description": "A professional, ultra-minimalist \"Ask Me Anything\" web application designed for interactive corridor displays, lobby kio",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: add post-response action panel, improve UI branding with UNODET logo, and refine team workstream display labels (5 days ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "Vibecodingrwap-main",
+    "path": "/Users/francescostabilito/Desktop/Progetti/Vibecodingrwap-main",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "Lucide/Heroicons",
+      "Framer Motion",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build"
+    },
+    "rule_files": [],
+    "description": "# Vibe-Coding Wrapped Overview",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: refactor MobileDisclaimerModal for improved mobile detection and user experience; enhance ProjectsShowcaseSection with responsive card sizing and animations (8 months ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "Vibelessons",
+    "path": "/Users/francescostabilito/Desktop/Progetti/Vibelessons",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "Lucide/Heroicons",
+      "Framer Motion",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build"
+    },
+    "rule_files": [],
+    "description": "# Vibe-Coding Wrapped Overview",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "Update files from Figma Make (9 months ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "Vibeplaygroundhome",
+    "path": "/Users/francescostabilito/Desktop/Progetti/Vibeplaygroundhome",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "Lucide/Heroicons",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build"
+    },
+    "rule_files": [],
+    "description": "# Landing Page for Vibe Playground",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "refactor: update llms.txt content, sitemap entries, and robots.txt to improve SEO and AI context availability (8 weeks ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "Wanderisco",
+    "path": "/Users/francescostabilito/Desktop/Progetti/Wanderisco",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "Framer Motion",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [
+      "Supabase"
+    ],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build"
+    },
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": true,
+      "branch": "fix-preview-link",
+      "last_commit": "fix: update imports to use runtime configuration for Supabase (7 months ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "admin-nexus",
+    "path": "/Users/francescostabilito/Desktop/Progetti/admin-nexus",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "build:dev": "vite build --mode development",
+      "lint": "eslint .",
+      "preview": "vite preview"
+    },
+    "rule_files": [],
+    "description": "A modern admin dashboard for managing organizations, initiatives, and email approvals for the Global Digital Compact (GD",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "chore: update version to 1.2.0 in package.json (9 months ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "agents-polisher",
+    "path": "/Users/francescostabilito/Desktop/Progetti/agents-polisher",
+    "framework": "Unknown",
+    "languages": [
+      "Unknown"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {},
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": false,
+      "branch": null,
+      "last_commit": null,
+      "clean": true
+    }
+  },
+  {
+    "name": "ai-capacity",
+    "path": "/Users/francescostabilito/Desktop/Progetti/ai-capacity",
+    "framework": "Vite + React",
+    "languages": [
+      "JavaScript"
+    ],
+    "ui": [
+      "Lucide/Heroicons",
+      "Framer Motion"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite --host",
+      "build": "vite build",
+      "preview": "vite preview"
+    },
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: add home navigation link to NavHeader and remove publication metadata from main header (8 weeks ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "ai-vibe-unlocked",
+    "path": "/Users/francescostabilito/Desktop/Progetti/ai-vibe-unlocked",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "build:dev": "vite build --mode development",
+      "lint": "eslint .",
+      "preview": "vite preview"
+    },
+    "rule_files": [],
+    "description": "**URL**: https://lovable.dev/projects/cb2112c7-9a61-4845-ac18-df252e3aafc1",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: enhance mobile experience with touch navigation and responsive styles (1 year, 1 month ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "ailab-visualizations",
+    "path": "/Users/francescostabilito/Desktop/Progetti/ailab-visualizations",
+    "framework": "Next.js (16.2.10)",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "Framer Motion"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "next dev",
+      "build": "next build",
+      "start": "next start",
+      "lint": "eslint"
+    },
+    "rule_files": [
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "description": "```bash",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: add a build-in-progress notification banner to the layout (3 weeks ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "burst-invest",
+    "path": "/Users/francescostabilito/Desktop/Progetti/burst-invest",
+    "framework": "Python (Flask)",
+    "languages": [
+      "Python"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {},
+    "rule_files": [],
+    "description": "Single-repository Flask application for monitoring AI-bubble risk across AI-linked equities, ETFs, infrastructure names,",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: implement SQLite-based LLM response caching and update dashboard UI components (6 weeks ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "career-spark",
+    "path": "/Users/francescostabilito/Desktop/Progetti/career-spark",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [
+      "Supabase"
+    ],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "build:dev": "vite build --mode development",
+      "lint": "eslint .",
+      "preview": "vite preview",
+      "vercel-build": "npm install --platform=linux --arch=x64 && npm run build"
+    },
+    "rule_files": [],
+    "description": "**URL**: https://lovable.dev/projects/113e1b22-0b42-4455-9272-49088a630791",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "refactor: remove unnecessary feedback page rendering logic and clean up instructions (1 year, 4 months ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "crwalbot",
+    "path": "/Users/francescostabilito/Desktop/Progetti/crwalbot",
+    "framework": "Unknown",
+    "languages": [
+      "Unknown"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {},
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": false,
+      "branch": null,
+      "last_commit": null,
+      "clean": true
+    }
+  },
+  {
+    "name": "digitaltransformation-compass",
+    "path": "/Users/francescostabilito/Desktop/Progetti/digitaltransformation-compass",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "build:dev": "vite build --mode development",
+      "lint": "eslint .",
+      "preview": "vite preview"
+    },
+    "rule_files": [],
+    "description": "**URL**: https://lovable.dev/projects/2f0b44c2-9478-45d6-b5af-090e78029a16",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "Refactor for local consistency (1 year, 1 month ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "donors-country",
+    "path": "/Users/francescostabilito/Desktop/Progetti/donors-country",
+    "framework": "Python",
+    "languages": [
+      "Python"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {},
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": false,
+      "branch": null,
+      "last_commit": null,
+      "clean": true
+    }
+  },
+  {
+    "name": "dx-planner",
+    "path": "/Users/francescostabilito/Desktop/Progetti/dx-planner",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "Framer Motion"
+    ],
+    "database": [
+      "Supabase"
+    ],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "tsc && vite build",
+      "preview": "vite preview"
+    },
+    "rule_files": [],
+    "description": "<div align=\"center\">",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: Update color palette in Presentation Mode for improved accessibility and visual distinction (8 months ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "ephemeral-frames-app",
+    "path": "/Users/francescostabilito/Desktop/Progetti/ephemeral-frames-app",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [
+      "Supabase"
+    ],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "build:dev": "vite build --mode development",
+      "lint": "eslint .",
+      "preview": "vite preview"
+    },
+    "rule_files": [],
+    "description": "**Use Lovable**",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "Merge branch 'main' of https://github.com/adilrene/ephemeral-frames-app (10 months ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "equitech",
+    "path": "/Users/francescostabilito/Desktop/Progetti/equitech",
+    "framework": "React (CRA/Custom)",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "astro dev",
+      "build": "astro build",
+      "preview": "astro preview",
+      "astro": "astro"
+    },
+    "rule_files": [],
+    "description": "This project is a personal blog dedicated to exploring the intersections of **Data Equity**, **Feminist Ecology**, and *",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "Initial commit: Data Equity Blog (Astro + MDX) (6 months ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "equitech-blog",
+    "path": "/Users/francescostabilito/Desktop/Progetti/equitech-blog",
+    "framework": "Next.js (16.1.6)",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "next dev",
+      "build": "next build",
+      "start": "next start",
+      "lint": "eslint"
+    },
+    "rule_files": [],
+    "description": "Equitech is a personal editorial-style blog homepage built with Next.js, TypeScript, and Tailwind CSS.",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "Enhance scrollytelling features with new components and styles; update blog authoring guide (6 months ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "extract",
+    "path": "/Users/francescostabilito/Desktop/Progetti/extract",
+    "framework": "Python",
+    "languages": [
+      "Python"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {},
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": false,
+      "branch": null,
+      "last_commit": null,
+      "clean": true
+    }
+  },
+  {
+    "name": "frastab-dev",
+    "path": "/Users/francescostabilito/Desktop/Progetti/frastab-dev",
+    "framework": "Next.js (15.3.2)",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "next dev --turbopack",
+      "build": "next build",
+      "start": "next start",
+      "lint": "next lint"
+    },
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": true,
+      "branch": "unknown",
+      "last_commit": null,
+      "clean": true
+    }
+  },
+  {
+    "name": "frastab-hospitality",
+    "path": "/Users/francescostabilito/Desktop/Progetti/frastab-hospitality",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite --host 0.0.0.0",
+      "build": "vite build",
+      "preview": "vite preview",
+      "format": "oxfmt"
+    },
+    "rule_files": [
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "description": "",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: add illustration to step 3 (nothing happens) in NarrativeSection (7 days ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "game",
+    "path": "/Users/francescostabilito/Desktop/Progetti/game",
+    "framework": "Unknown",
+    "languages": [
+      "JavaScript"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {},
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": false,
+      "branch": null,
+      "last_commit": null,
+      "clean": true
+    }
+  },
+  {
+    "name": "gdc-navigator-b30e42f2",
+    "path": "/Users/francescostabilito/Desktop/Progetti/gdc-navigator-b30e42f2",
+    "framework": "Vite + React",
+    "languages": [
+      "JavaScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "Framer Motion",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "lint": "eslint .",
+      "preview": "vite preview"
+    },
+    "rule_files": [],
+    "description": "This app was created automatically by Base44.",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "Refactor code structure for improved readability and maintainability (1 year, 1 month ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "geometra-studio",
+    "path": "/Users/francescostabilito/Desktop/Progetti/geometra-studio",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons"
+    ],
+    "database": [],
+    "services": [
+      "Gemini API"
+    ],
+    "scripts": {
+      "dev": "vite",
+      "build": "tsc -b && vite build",
+      "lint": "eslint .",
+      "preview": "vite preview"
+    },
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: add manual room drawing, renaming, and deletion capabilities to RoomEditorCanvas (5 weeks ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "global-digital-compass",
+    "path": "/Users/francescostabilito/Desktop/Progetti/global-digital-compass",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "Framer Motion",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "build:dev": "vite build --mode development",
+      "lint": "eslint .",
+      "preview": "vite preview"
+    },
+    "rule_files": [],
+    "description": "**URL**: https://lovable.dev/projects/8c3c2c2b-c1ff-4e8c-86b4-209363a8267f",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "chore: remove unused Open Graph and Twitter meta tags from index.html (1 year ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "hello-world-flux",
+    "path": "/Users/francescostabilito/Desktop/Progetti/hello-world-flux",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite dev",
+      "build": "vite build",
+      "build:dev": "vite build --mode development",
+      "preview": "vite preview",
+      "lint": "eslint .",
+      "format": "prettier --write ."
+    },
+    "rule_files": [],
+    "description": "A minimal personal website built with TanStack Start, React, and Tailwind CSS. Displays a big split-flap flip animation ",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "fix: update full name and correct typography in meta tags and route configuration (7 days ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "host-new",
+    "path": "/Users/francescostabilito/Desktop/Progetti/host-new",
+    "framework": "Next.js (16.3.3)",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Framer Motion",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [
+      "Supabase"
+    ],
+    "services": [],
+    "scripts": {
+      "dev": "next dev",
+      "build": "next build",
+      "start": "next start",
+      "lint": "eslint",
+      "clean": "node --env-file=.env clean-test-data.mjs"
+    },
+    "rule_files": [
+      "AGENTS.md",
+      "CLAUDE.md",
+      ".agents/"
+    ],
+    "description": "This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: add EvolutionSection, ScrollProgressBar component, and update Hero content and indexing (5 days ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "justetf",
+    "path": "/Users/francescostabilito/Desktop/Progetti/justetf",
+    "framework": "Python",
+    "languages": [
+      "Python"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {},
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": false,
+      "branch": null,
+      "last_commit": null,
+      "clean": true
+    }
+  },
+  {
+    "name": "lical",
+    "path": "/Users/francescostabilito/Desktop/Progetti/lical",
+    "framework": "Unknown",
+    "languages": [
+      "Unknown"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {},
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": true,
+      "branch": "unknown",
+      "last_commit": null,
+      "clean": true
+    }
+  },
+  {
+    "name": "n8n",
+    "path": "/Users/francescostabilito/Desktop/Progetti/n8n",
+    "framework": "Node.js",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "prepare": "node scripts/prepare.mjs",
+      "preinstall": "node scripts/block-npm-install.js",
+      "build": "turbo run build",
+      "build:n8n": "node scripts/build-n8n.mjs",
+      "build:deploy": "node scripts/build-n8n.mjs",
+      "build:docker": "node scripts/build-n8n.mjs && node scripts/dockerize-n8n.mjs",
+      "build:docker:scan": "node scripts/build-n8n.mjs && node scripts/dockerize-n8n.mjs && node scripts/scan-n8n-image.mjs",
+      "build:docker:test": "node scripts/build-n8n.mjs && node scripts/dockerize-n8n.mjs && turbo run test:container:standard --filter=n8n-playwright",
+      "typecheck": "turbo typecheck",
+      "dev": "turbo run dev --parallel --env-mode=loose --filter=!@n8n/design-system --filter=!@n8n/chat --filter=!@n8n/task-runner",
+      "dev:be": "turbo run dev --parallel --env-mode=loose --filter=!@n8n/design-system --filter=!@n8n/chat --filter=!@n8n/task-runner --filter=!n8n-editor-ui",
+      "dev:ai": "turbo run dev --parallel --env-mode=loose --filter=@n8n/nodes-langchain --filter=n8n --filter=n8n-core",
+      "dev:fe": "run-p start \"dev:fe:editor --filter=@n8n/design-system\"",
+      "dev:fe:editor": "turbo run dev --parallel --env-mode=loose --filter=n8n-editor-ui",
+      "clean": "turbo run clean",
+      "reset": "node scripts/ensure-zx.mjs && zx scripts/reset.mjs",
+      "format": "turbo run format && node scripts/format.mjs",
+      "format:check": "turbo run format:check",
+      "lint": "turbo run lint",
+      "lint:styles": "turbo run lint:styles",
+      "lint:styles:fix": "turbo run lint:styles:fix",
+      "lint:affected": "turbo run lint --affected",
+      "lint:fix": "turbo run lint:fix",
+      "optimize-svg": "find ./packages -name '*.svg' ! -name 'pipedrive.svg' -print0 | xargs -0 -P16 -L20 npx svgo",
+      "generate:third-party-licenses": "node scripts/generate-third-party-licenses.mjs",
+      "setup-backend-module": "node scripts/ensure-zx.mjs && zx scripts/backend-module/setup.mjs",
+      "start": "run-script-os",
+      "start:default": "cd packages/cli/bin && ./n8n",
+      "start:tunnel": "./packages/cli/bin/n8n start --tunnel",
+      "start:windows": "cd packages/cli/bin && n8n",
+      "test": "JEST_JUNIT_CLASSNAME={filepath} turbo run test",
+      "test:ci": "turbo run test --continue --concurrency=1",
+      "test:ci:frontend": "turbo run test --continue --filter='./packages/frontend/**'",
+      "test:ci:backend": "turbo run test --continue --concurrency=1 --filter='!./packages/frontend/**'",
+      "test:ci:backend:unit": "turbo run test:unit --continue --filter='!./packages/frontend/**'",
+      "test:ci:backend:integration": "turbo run test:integration --continue --concurrency=1 --filter='!./packages/frontend/**'",
+      "test:affected": "turbo run test --affected --concurrency=1",
+      "test:with:docker": "pnpm --filter=n8n-playwright test:container:standard",
+      "test:show:report": "pnpm --filter=n8n-playwright exec playwright show-report",
+      "watch": "turbo run watch --concurrency=30",
+      "webhook": "./packages/cli/bin/n8n webhook",
+      "worker": "./packages/cli/bin/n8n worker"
+    },
+    "rule_files": [
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "description": "![Banner image](https://user-images.githubusercontent.com/10284570/173569848-c624317f-42b1-45a6-ab09-f0ea3c247648.png)",
+    "git": {
+      "has_git": true,
+      "branch": "master",
+      "last_commit": "fix(core): GET /models endpoint doesn't return n8n workflow agents (no-changelog) (#22845) (9 months ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "nuptial-guest-glide",
+    "path": "/Users/francescostabilito/Desktop/Progetti/nuptial-guest-glide",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [
+      "Supabase"
+    ],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "build:dev": "vite build --mode development",
+      "lint": "eslint .",
+      "preview": "vite preview"
+    },
+    "rule_files": [],
+    "description": "**URL**: https://lovable.dev/projects/7bd6257b-0be6-47b7-9074-86b250845f79",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: add age field to guest forms and update related services and types (1 year, 3 months ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "odetxAI",
+    "path": "/Users/francescostabilito/Desktop/Progetti/odetxAI",
+    "framework": "Vite + React",
+    "languages": [
+      "JavaScript"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "preview": "vite preview"
+    },
+    "rule_files": [],
+    "description": "An immersive, UN-style digital cooperation museum experience. The site serves as a visual exhibition of the operational ",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: initialize project structure with React, Vite, and component-based museum gallery architecture (8 weeks ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "open-ai-supply-chain",
+    "path": "/Users/francescostabilito/Desktop/Progetti/open-ai-supply-chain",
+    "framework": "Vite + React",
+    "languages": [
+      "JavaScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "Framer Motion"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "preview": "vite preview"
+    },
+    "rule_files": [
+      "GEMINI.md"
+    ],
+    "description": "",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: scaffold open-ai-supply-chain longform interactive article with GSAP, Framer Motion, and Tailwind (26 minutes ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "podcast generator",
+    "path": "/Users/francescostabilito/Desktop/Progetti/podcast generator",
+    "framework": "Unknown",
+    "languages": [
+      "Unknown"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {},
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": false,
+      "branch": null,
+      "last_commit": null,
+      "clean": true
+    }
+  },
+  {
+    "name": "rallynyc",
+    "path": "/Users/francescostabilito/Desktop/Progetti/rallynyc",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS"
+    ],
+    "database": [
+      "Supabase"
+    ],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "tsc && vite build",
+      "preview": "vite preview"
+    },
+    "rule_files": [
+      "AGENTS.md"
+    ],
+    "description": "> Find a court. Find a player. Go play.",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: add script to test Loops API event integration (7 days ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "rallynyc-native",
+    "path": "/Users/francescostabilito/Desktop/Progetti/rallynyc-native",
+    "framework": "React (CRA/Custom)",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS"
+    ],
+    "database": [
+      "Supabase"
+    ],
+    "services": [],
+    "scripts": {
+      "start": "expo start",
+      "android": "expo start --android",
+      "ios": "expo start --ios",
+      "web": "expo start --web"
+    },
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "chore: Phase 0-2 \u2014 Expo scaffold, shared types, Supabase client, auth context, navigation shell, all screens (Phase 0-2) (4 months ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "renovation-buddy",
+    "path": "/Users/francescostabilito/Desktop/Progetti/renovation-buddy",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "Lucide/Heroicons"
+    ],
+    "database": [
+      "Supabase"
+    ],
+    "services": [
+      "Gemini API"
+    ],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "preview": "vite preview"
+    },
+    "rule_files": [],
+    "description": "<div align=\"center\">",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: Enhance ItemCard and MainContent styles for improved UI and user experience (8 months ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "research-assistant",
+    "path": "/Users/francescostabilito/Desktop/Progetti/research-assistant",
+    "framework": "Python",
+    "languages": [
+      "Python"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {},
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "Enhance source reference handling and styling in ExpertAnalysis and ExpertSynthesis components (4 months ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "scalea-slow-living-website",
+    "path": "/Users/francescostabilito/Desktop/Progetti/scalea-slow-living-website",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons",
+      "Framer Motion",
+      "shadcn/ui (Radix)"
+    ],
+    "database": [
+      "Supabase"
+    ],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "build:dev": "vite build --mode development",
+      "lint": "eslint .",
+      "preview": "vite preview",
+      "security-test": "node scripts/test-security-headers.cjs"
+    },
+    "rule_files": [],
+    "description": "A modern vacation rental website built with React, TypeScript, and Supabase.",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: implement dynamic Open Graph metadata fetching for blog posts and update site configuration (6 days ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "testing",
+    "path": "/Users/francescostabilito/Desktop/Progetti/testing",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "Lucide/Heroicons",
+      "Framer Motion"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "tsc -b && vite build",
+      "lint": "eslint .",
+      "preview": "vite preview"
+    },
+    "rule_files": [],
+    "description": "This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.",
+    "git": {
+      "has_git": false,
+      "branch": null,
+      "last_commit": null,
+      "clean": true
+    }
+  },
+  {
+    "name": "thinternet-app",
+    "path": "/Users/francescostabilito/Desktop/Progetti/thinternet-app",
+    "framework": "Unknown",
+    "languages": [
+      "JavaScript"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {},
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": false,
+      "branch": null,
+      "last_commit": null,
+      "clean": true
+    }
+  },
+  {
+    "name": "trusthost",
+    "path": "/Users/francescostabilito/Desktop/Progetti/trusthost",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [],
+    "database": [
+      "Firebase"
+    ],
+    "services": [
+      "Gemini API"
+    ],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "preview": "vite preview"
+    },
+    "rule_files": [],
+    "description": "<div align=\"center\">",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: rename App component to AppShell for clarity and maintain structure (7 months ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "unical-housing",
+    "path": "/Users/francescostabilito/Desktop/Progetti/unical-housing",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "Lucide/Heroicons"
+    ],
+    "database": [
+      "Supabase"
+    ],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "tsc && vite build",
+      "preview": "vite preview"
+    },
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: add spam folder check warning to email verification UI in App and Publish components (3 months ago)",
+      "clean": true
+    }
+  },
+  {
+    "name": "untitled folder",
+    "path": "/Users/francescostabilito/Desktop/Progetti/untitled folder",
+    "framework": "Unknown",
+    "languages": [
+      "Unknown"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {},
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": false,
+      "branch": null,
+      "last_commit": null,
+      "clean": true
+    }
+  },
+  {
+    "name": "vibe-check",
+    "path": "/Users/francescostabilito/Desktop/Progetti/vibe-check",
+    "framework": "Unknown",
+    "languages": [
+      "Unknown"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {},
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": false,
+      "branch": null,
+      "last_commit": null,
+      "clean": true
+    }
+  },
+  {
+    "name": "vibe-decoder",
+    "path": "/Users/francescostabilito/Desktop/Progetti/vibe-decoder",
+    "framework": "Vite",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "npm run generate-registry && vite build",
+      "generate-registry": "npx ts-node scripts/generate-rule-registry.ts",
+      "test": "vitest"
+    },
+    "rule_files": [],
+    "description": "**Because sometimes you just need to know if a human actually touched those divs.**",
+    "git": {
+      "has_git": false,
+      "branch": null,
+      "last_commit": null,
+      "clean": true
+    }
+  },
+  {
+    "name": "vibe-playground",
+    "path": "/Users/francescostabilito/Desktop/Progetti/vibe-playground",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "TailwindCSS",
+      "Lucide/Heroicons"
+    ],
+    "database": [
+      "Supabase"
+    ],
+    "services": [],
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "lint": "eslint .",
+      "preview": "vite preview",
+      "type-check": "tsc --noEmit"
+    },
+    "rule_files": [],
+    "description": "",
+    "git": {
+      "has_git": true,
+      "branch": "main",
+      "last_commit": "feat: Add @vercel/analytics dependency and remove obsolete vote triggers (1 year, 3 months ago)",
+      "clean": false
+    }
+  },
+  {
+    "name": "wanderisco-1",
+    "path": "/Users/francescostabilito/Desktop/Progetti/wanderisco-1",
+    "framework": "Vite + React",
+    "languages": [
+      "TypeScript"
+    ],
+    "ui": [
+      "Lucide/Heroicons"
+    ],
+    "database": [],
+    "services": [],
+    "scripts": {
+      "start": "vite",
+      "build": "vite build",
+      "serve": "vite preview",
+      "test": "vitest",
+      "lint": "eslint . --ext .ts,.tsx"
+    },
+    "rule_files": [],
+    "description": "Wanderisco is a React application designed to help users explore various listings and manage their preferences for trave",
+    "git": {
+      "has_git": false,
+      "branch": null,
+      "last_commit": null,
+      "clean": true
+    }
+  }
+]
