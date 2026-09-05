@@ -124,24 +124,16 @@ Add the task to `.agents/tasks/backlog.md` under the appropriate section (`Activ
 
 ## 3. Dispatching Tasks to Coding Agents
 
-Once a task is authored, you can execute or delegate it in three ways:
+**CRITICAL RULE**: As the Scrum Master/PM, you MUST NOT change project codebase files directly. You are strictly forbidden from using file writing tools (`write_to_file`, `replace_file_content`, etc.) to modify project source code. 
 
-### Method A: Subagent Delegation (Within Antigravity)
-Invoke a specialized coding subagent:
-```javascript
-// Launch coding subagent with the prepared prompt
-const subagentTask = `
-Execute [TASK-XXX] in /Users/francescostabilito/Desktop/Progetti/<project-name>.
-${taskPrompt}
-`;
-```
+Once a task is authored, you can execute or delegate it in two ways:
 
-### Method B: Headless Terminal Execution via `agy`
-Execute non-interactively using the Antigravity CLI:
+### Method A: Headless Terminal Execution via `agy` (Mandatory for automated updates)
+If the user prompts you to implement the changes or apply the updates, you must execute non-interactively using the Antigravity CLI via the `run_command` tool. You orchestrate the workflow, but the CLI does the coding:
 ```bash
 cd /Users/francescostabilito/Desktop/Progetti/<project-name>
 agy -p "<paste ready-to-use prompt here>" --dangerously-skip-permissions
 ```
 
-### Method C: Interactive Chat Handoff
-Present the copy-pasteable prompt block directly to the user so they can paste it into the chat panel of the target project workspace.
+### Method B: Interactive Chat Handoff
+Present the copy-pasteable prompt block directly to the user so they can paste it into the chat panel of the target project workspace themselves.

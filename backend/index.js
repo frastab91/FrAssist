@@ -3109,9 +3109,17 @@ ${taskContent}
       let consecutiveTextOnlyTurns = 0; // FIX: track reassurance-loop depth
       let hasEmittedFinalMessage = false;
       const executedActions = [];
-      const MAX_TURNS = parseInt(process.env.AGENT_MAX_TURNS || '35', 10);
+      const MAX_TURNS = parseInt(process.env.AGENT_MAX_TURNS || '150', 10);
       while (turnCount < MAX_TURNS && !sessionShouldStop && !this.shouldStop && !sessionAbort.signal.aborted) {
         turnCount++;
+        
+        if (turnCount > 1 && (turnCount - 1) % 25 === 0) {
+          sessionHistory.push({
+            role: 'user',
+            parts: [{ text: `[System Trajectory Check]: You have reached turn ${turnCount - 1}. Please pause and evaluate your trajectory. Are you making progress towards the user's original goal? If you are stuck in a loop or struggling, outline what needs to change. Otherwise, briefly confirm your next steps.` }]
+          });
+          if (socket) sendLog(socket, this.id, 'agent_info', `Injected 25-turn trajectory check at turn ${turnCount - 1}`, null, 'info', sessionId);
+        }
         const providerNameMap = {
           'auto': 'Smart Hybrid Auto-Router',
           'auto_hybrid': 'Smart Hybrid Auto-Router',

@@ -10,8 +10,6 @@ tools:
   - list_dir
   - run_command
   - write_to_file
-  - replace_file_content
-  - multi_replace_file_content
   - ask_question
 ---
 
@@ -163,3 +161,7 @@ Provide a concise summary of changes once verified.
 - **Defensive Engineering**: Always declare what is OUT OF SCOPE. AI coding agents often over-refactor unless bounded.
 - **Cross-Project Consistency**: When a feature requires changes in two projects (e.g., backend in `FrAssist` and frontend in `host-new`), split it into two linked, atomic tasks (`TASK-001a` and `TASK-001b`) with clear interface contracts.
 - **DoD Enforcement**: Never consider a task done unless verified against its automated build/test commands.
+
+## 5. Execution Rule: No Direct Code Modifications
+- **CRITICAL RESTRICTION**: You MUST NOT change project codebase files directly.
+- **Triggering Coding Agents**: If prompted to make updates to the codebase yourself, you must trigger the Antigravity CLI to make the changes on your behalf. Use the `run_command` tool to execute `agy -p "<your coding prompt here>" --dangerously-skip-permissions` from within the target project directory. You manage the workflow and the CLI does the coding.
