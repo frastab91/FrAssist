@@ -200,7 +200,7 @@ export function ChatArea({
 
   // Filter telemetry logs strictly to this active session or global system logs
   const sessionLogs = useMemo(() => {
-    return logs.filter(l => !l.sessionId || l.sessionId === activeSessionId);
+    return logs.filter(l => l.sessionId === activeSessionId);
   }, [logs, activeSessionId]);
 
   // Only consider agents working if THIS session is actively working or running steps
@@ -582,6 +582,7 @@ export function ChatArea({
           currentStatus={currentStatus} 
           activeTool={activeTool}
           logs={sessionLogs}
+          activeSessionId={activeSessionId}
           steps={taskSteps}
           handleStop={handleStop}
           onOpenLogs={onOpenLogs}

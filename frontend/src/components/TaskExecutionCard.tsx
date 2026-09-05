@@ -6,6 +6,7 @@ type TaskExecutionCardProps = {
   agent: Agent;
   currentStatus: string;
   logs: LogEvent[];
+  activeSessionId?: string;
   steps?: TaskActivityStep[];
   handleStop: () => void;
   onOpenLogs?: () => void;
@@ -16,6 +17,7 @@ export function TaskExecutionCard({
   agent,
   currentStatus,
   logs,
+  activeSessionId,
   steps = [],
   handleStop,
   activeTool,
@@ -31,7 +33,10 @@ export function TaskExecutionCard({
     return () => clearInterval(interval);
   }, []);
 
-  const agentLogs = logs.filter(l => l.agentId === agent.id || l.agentId === 'system');
+  const agentLogs = logs.filter(l =>
+    (l.agentId === agent.id || l.agentId === 'system') &&
+    (!activeSessionId || l.sessionId === activeSessionId)
+  );
   const lastLog = agentLogs.slice(-1)[0];
   const recentLogs = agentLogs.slice(-4);
 

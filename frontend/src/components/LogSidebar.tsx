@@ -6,9 +6,13 @@ type LogSidebarProps = {
   setLogs: (logs: LogEvent[]) => void;
   logsEndRef: React.RefObject<HTMLDivElement | null>;
   onClose?: () => void;
+  activeSessionId?: string;
 };
 
-export function LogSidebar({ logs, setLogs, logsEndRef, onClose }: LogSidebarProps) {
+export function LogSidebar({ logs, setLogs, logsEndRef, onClose, activeSessionId }: LogSidebarProps) {
+  const sessionLogs = activeSessionId
+    ? logs.filter(l => l.sessionId === activeSessionId)
+    : logs;
   return (
     <aside className="log-sidebar" style={{ width: '360px', borderLeft: '1px solid #1e293b', background: '#0f172a', display: 'flex', flexDirection: 'column' }}>
       <div className="log-header" style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0f172a' }}>
@@ -16,7 +20,7 @@ export function LogSidebar({ logs, setLogs, logsEndRef, onClose }: LogSidebarPro
           <span style={{ color: '#38bdf8', fontSize: '0.75rem' }}>⬤</span> Live Log Stream
         </h2>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <span style={{ fontSize: '0.65rem', color: '#34d399', fontWeight: 600 }}>{logs.length} events</span>
+          <span style={{ fontSize: '0.65rem', color: '#34d399', fontWeight: 600 }}>{sessionLogs.length} events</span>
           <button 
             onClick={() => setLogs([])} 
             title="Clear logs"
@@ -60,7 +64,7 @@ export function LogSidebar({ logs, setLogs, logsEndRef, onClose }: LogSidebarPro
         </div>
       </div>
       <div className="log-list" style={{ flex: 1, overflowY: 'auto', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '3px', background: '#0f172a' }}>
-        {logs.map(log => {
+        {sessionLogs.map(log => {
           const TYPE_COLOR: Record<string, string> = {
             tool_start: '#a78bfa',
             tool_result: '#34d399',

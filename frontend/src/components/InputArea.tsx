@@ -62,7 +62,7 @@ export function InputArea({
   activeSessionId,
 }: InputAreaProps & { selectedAgentId: string | null }) {
   const activeAgent = activeAgents.find(a => a.id === selectedAgentId);
-  const sessionLogs = logs.filter(l => !l.sessionId || l.sessionId === activeSessionId);
+  const sessionLogs = logs.filter(l => l.sessionId === activeSessionId);
 
   return (
     <div

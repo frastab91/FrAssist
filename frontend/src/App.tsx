@@ -408,7 +408,12 @@ export default function App() {
         window.history.replaceState({}, '', currentUrl.toString());
       }
     } catch (_) {}
-  }, [activeSessionId]);
+
+    // Request session-scoped log history so we don't show stale cross-session logs
+    if (socket && activeSessionId) {
+      socket.emit('request_session_logs', activeSessionId);
+    }
+  }, [activeSessionId, socket]);
 
   const handleChannelChange = (channel: 'web' | 'whatsapp' | 'telegram' | 'agent') => {
     setCurrentView('workspace');
@@ -576,7 +581,7 @@ export default function App() {
         setSessionToolMap(prev => ({ ...prev, [data.sessionId!]: data.status === 'idle' ? undefined : data.toolName }));
       }
 
-      const isCurrentSession = !data.sessionId || data.sessionId === activeSessionIdRef.current;
+      const isCurrentSession = data.sessionId === activeSessionIdRef.current;
 
       // Only update active UI (isTyping, currentStatus) if event belongs to current active session
       if (isCurrentSession) {
@@ -1497,6 +1502,7 @@ export default function App() {
           setLogs={setLogs}
           logsEndRef={logsEndRef}
           onClose={() => setShowLogs(false)}
+          activeSessionId={activeSessionId}
         />
       )}
 

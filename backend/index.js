@@ -789,13 +789,13 @@ function broadcastTaskActivity(agentId, action, detail, meta = {}, sessionId = n
   }
 }
 
-async function sendLogHistory(socket) {
+async function sendLogHistory(socket, filterSessionId = null) {
   if (!fs.existsSync(traceLogPath)) return;
   try {
     const data = fs.readFileSync(traceLogPath, 'utf8');
     const lines = data.trim().split('\n').filter(Boolean);
-    // Send the last 200 entries (lightweight payload to avoid renderer crashes)
-    const lastLogs = lines.slice(-200).map(line => {
+    // Read more lines (500) so session-scoped filtering still yields a meaningful set
+    let parsedLogs = lines.slice(-500).map(line => {
       try {
         const parsed = JSON.parse(line);
         if (parsed.message && parsed.message.length > 1000) {
@@ -809,6 +809,11 @@ async function sendLogHistory(socket) {
         return null;
       }
     }).filter(Boolean);
+    // If a sessionId filter was provided, only return logs for that session
+    if (filterSessionId) {
+      parsedLogs = parsedLogs.filter(l => l.sessionId === filterSessionId);
+    }
+    const lastLogs = parsedLogs.slice(-200);
     
     socket.emit('log_history', lastLogs);
   } catch (err) {
@@ -2789,7 +2794,7 @@ class Agent {
       await this.historyPromise;
     }
 
-    if (userMessage.trim() === '/compress') {
+    if (userMessage.trim() === '/compress' || userMessage.trim() === '/comp') {
       await compressSession(socket, this.id);
       activeSessionRuns.delete(sessionId);
       if (typeof io !== 'undefined') {
@@ -5068,8 +5073,15 @@ io.on('connection', (socket) => {
 
   sendKeyStatus();
   
-  // Restore logs
+  // Restore logs (unscoped on initial connect — frontend filters by activeSessionId)
   sendLogHistory(socket);
+
+  // Allow client to request session-scoped log history (e.g. on session switch)
+  socket.on('request_session_logs', (sessionId) => {
+    if (sessionId && typeof sessionId === 'string') {
+      sendLogHistory(socket, sessionId);
+    }
+  });
 
   // Send active agents list
   loadAvailableAgents().then(() => {
