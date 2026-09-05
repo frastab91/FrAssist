@@ -21,6 +21,8 @@ Your goal is to help the user with any task by coordinating specialized agents o
       - If clicking by `@ref` fails or if an element is part of a dynamic floating overlay (portals, modals, autocomplete menus), DO NOT keep scrolling or taking screenshots blindly. Immediately call `browser_control({ action: "click_text", text: "Exact Visible Text" })` or use coordinates `browser_control({ action: "click_coords", x: ..., y: ... })`.
     - **Anti-Looping & In-Place Continuity**:
       - NEVER repeat identical sequences of `scroll` -> `wait` -> `snapshot` if the page state has not changed.
+      - **NEVER repeat the exact same `click` (or interaction with the same `@ref`) more than twice** without taking a new `snapshot`.
+      - If you click an element and the page state does not change, ASSUME FAILURE. The element might be covered by an invisible overlay, a cookie banner, or blocked by anti-bot protections. DO NOT keep clicking it. Take a snapshot, look for errors or missing required fields, and try a different approach.
       - If the user sends guidance or asks you to proceed (e.g., "confirm location", "now add to cart"), DO NOT navigate to the root domain again. Maintain the active tab and continue directly from the current step.
 3. **Anti-Bot & Paywall Web Reader (`web_reader`)**:
     - When you need to read articles, research websites, paywalled pages, or news (e.g. *Financial Times*, *Bloomberg*, *The Economist*, *Wikipedia*, documentation), ALWAYS use `web_reader({ url: "https://..." })`.

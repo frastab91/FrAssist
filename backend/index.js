@@ -514,6 +514,107 @@ app.post('/api/maintenance/cleanup', async (req, res) => {
   }
 });
 
+app.get('/api/backlog', (req, res) => {
+  try {
+    const backlogPath = path.join(process.cwd(), '.agents', 'tasks', 'backlog.md');
+    if (!fs.existsSync(backlogPath)) {
+      return res.json({ columns: [] });
+    }
+    const content = fs.readFileSync(backlogPath, 'utf8');
+    const lines = content.split('\n');
+    
+    const columns = [];
+    let currentColumn = null;
+    let currentTask = null;
+    
+    for (const line of lines) {
+      if (line.startsWith('## ')) {
+        if (currentTask && currentColumn) {
+           currentColumn.tasks.push(currentTask);
+           currentTask = null;
+        }
+        currentColumn = { title: line.replace('## ', '').trim(), tasks: [] };
+        columns.push(currentColumn);
+      } else if (line.startsWith('### ')) {
+        if (currentTask && currentColumn) {
+           currentColumn.tasks.push(currentTask);
+        }
+        const taskTitleMatch = line.match(/###\s+(\[TASK-[A-Z0-9]+\])\s+(?:\[(.*?)\]\s+)?(.*)/);
+        currentTask = {
+          id: taskTitleMatch ? taskTitleMatch[1] : 'Unknown',
+          priority: taskTitleMatch && taskTitleMatch[2] ? taskTitleMatch[2] : '',
+          title: taskTitleMatch ? taskTitleMatch[3] : line.replace('### ', '').trim(),
+          project: '',
+          type: '',
+          complexity: '',
+          prompt: '',
+          rawBody: []
+        };
+      } else if (currentTask) {
+        if (line.startsWith('- **Target Project**:')) {
+          const m = line.match(/`([^`]+)`/);
+          if (m) currentTask.project = m[1];
+        } else if (line.startsWith('- **Type**:')) {
+          currentTask.type = line.replace('- **Type**:', '').trim();
+        } else if (line.startsWith('- **Complexity**:')) {
+          currentTask.complexity = line.replace('- **Complexity**:', '').trim();
+        } else if (line.indexOf('Copy-Paste this prompt directly') !== -1 || line.indexOf('to the coding agent:') !== -1) {
+          currentTask.promptFlag = true;
+        } else if (currentTask.promptFlag && line.startsWith('\`\`\`text')) {
+          currentTask.inPrompt = true;
+        } else if (currentTask.inPrompt && line.startsWith('\`\`\`')) {
+          currentTask.inPrompt = false;
+        } else if (currentTask.inPrompt) {
+          currentTask.prompt += line + '\\n';
+        } else {
+          currentTask.rawBody.push(line);
+        }
+      }
+    }
+    if (currentTask && currentColumn) {
+       currentColumn.tasks.push(currentTask);
+    }
+    
+    columns.forEach(c => c.tasks.forEach(t => {
+      t.prompt = t.prompt.trim();
+      delete t.promptFlag;
+      delete t.inPrompt;
+    }));
+    
+    res.json({ columns });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/backlog/execute', (req, res) => {
+  const { project, prompt, taskId } = req.body;
+  if (!project || !prompt) {
+    return res.status(400).json({ error: 'Missing project or prompt' });
+  }
+  
+  const targetDir = path.join(process.cwd(), '..', project);
+  
+  const child = spawn('agy', ['-p', prompt, '--dangerously-skip-permissions'], {
+    cwd: targetDir,
+    shell: true
+  });
+  
+  if (io) {
+    child.stdout.on('data', (data) => {
+      io.emit('agy_execution_log', { taskId, type: 'stdout', chunk: data.toString() });
+    });
+    child.stderr.on('data', (data) => {
+      io.emit('agy_execution_log', { taskId, type: 'stderr', chunk: data.toString() });
+    });
+    child.on('close', (code) => {
+      io.emit('agy_execution_log', { taskId, type: 'close', code });
+    });
+  }
+  
+  res.json({ success: true, message: 'Execution started' });
+});
+
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
@@ -3116,7 +3217,7 @@ ${taskContent}
         if (turnCount > 1 && (turnCount - 1) % 25 === 0) {
           sessionHistory.push({
             role: 'user',
-            parts: [{ text: `[System Trajectory Check]: You have reached turn ${turnCount - 1}. Please pause and evaluate your trajectory. Are you making progress towards the user's original goal? If you are stuck in a loop or struggling, outline what needs to change. Otherwise, briefly confirm your next steps.` }]
+            parts: [{ text: `[System Trajectory Check]: You have reached turn ${turnCount - 1}. Evaluate your trajectory. Are you making progress towards the user's original goal? If you are stuck in a loop or struggling, briefly outline what needs to change. IMPORTANT: You MUST continue the task by calling the next tool in this exact response. Do NOT reply with only text, or the process will abort prematurely.` }]
           });
           if (socket) sendLog(socket, this.id, 'agent_info', `Injected 25-turn trajectory check at turn ${turnCount - 1}`, null, 'info', sessionId);
         }

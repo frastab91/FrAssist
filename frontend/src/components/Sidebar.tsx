@@ -16,7 +16,8 @@ import {
   ChevronDown,
   Plus,
   Clock,
-  Bookmark
+  Bookmark,
+  Box
 } from 'lucide-react';
 import type { Agent, SystemStats, ChatSession } from '../types';
 import { Socket } from 'socket.io-client';
@@ -48,6 +49,8 @@ type SidebarProps = {
   bookmarksCount?: number;
   isBookmarksActive?: boolean;
   onOpenMessaging?: () => void;
+  onOpenBacklog?: () => void;
+  isBacklogActive?: boolean;
   onToggleSidebar?: () => void;
 };
 
@@ -127,6 +130,8 @@ export function Sidebar({
   bookmarksCount = 0,
   isBookmarksActive = false,
   onOpenMessaging,
+  onOpenBacklog,
+  isBacklogActive = false,
   onToggleSidebar,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -405,6 +410,19 @@ export function Sidebar({
               {bookmarksCount}
             </span>
           )}
+        </button>
+
+        {/* 6. Backlog */}
+        <button 
+          onClick={() => {
+            if (onOpenBacklog) onOpenBacklog();
+          }}
+          className={`macos-nav-item ${isBacklogActive ? 'active-bookmark' : ''}`}
+        >
+          <div className="nav-item-left">
+            <Box size={17} className="nav-item-icon" />
+            <span className="nav-item-label">Backlog</span>
+          </div>
         </button>
       </div>
 

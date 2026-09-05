@@ -18,6 +18,7 @@ import { WhatsAppPage } from './components/WhatsAppPage';
 import { MissionControlModal } from './components/MissionControlModal';
 import { SettingsModal } from './components/SettingsModal';
 import { BookmarksPage } from './components/BookmarksPage';
+import { BacklogBoard } from './components/BacklogBoard';
 import { globalAudio } from './lib/audioManager';
 
 export default function App() {
@@ -263,7 +264,7 @@ export default function App() {
   // Bookmarks State & Handlers
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
   const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
-  const [currentView, setCurrentView] = useState<'workspace' | 'bookmarks'>('workspace');
+  const [currentView, setCurrentView] = useState<'workspace' | 'bookmarks' | 'backlog'>('workspace');
 
   const fetchBookmarks = useCallback(async () => {
     try {
@@ -1353,6 +1354,10 @@ export default function App() {
           }}
           bookmarksCount={bookmarks.length}
           isBookmarksActive={currentView === 'bookmarks'}
+          onOpenBacklog={() => {
+            setCurrentView(prev => prev === 'backlog' ? 'workspace' : 'backlog');
+          }}
+          isBacklogActive={currentView === 'backlog'}
           onOpenMessaging={() => {
             setCurrentView('workspace');
             setActiveChannel(activeChannel === 'whatsapp' ? 'web' : 'whatsapp');
@@ -1410,7 +1415,9 @@ export default function App() {
           activeSessionId={activeSessionId}
         />
 
-        {currentView === 'bookmarks' ? (
+        {currentView === 'backlog' ? (
+          <BacklogBoard socket={socket} />
+        ) : currentView === 'bookmarks' ? (
           <BookmarksPage
             bookmarks={bookmarks}
             onRefresh={fetchBookmarks}
