@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, ChevronDown, Folder, Terminal, Volume2, VolumeX, Globe, Play, MessageSquare, Activity, PanelLeft, Copy, Check, Hash } from 'lucide-react';
+import { Settings, ChevronDown, Folder, Terminal, Volume2, VolumeX, Globe, Play, MessageSquare, Activity, PanelLeft, Copy, Check, Hash, Bookmark } from 'lucide-react';
 import type { KeyStatus } from '../types';
 import { Socket } from 'socket.io-client';
 
@@ -52,6 +52,9 @@ type HeaderProps = {
   isCurrentSessionWorking?: boolean;
   handleStop?: () => void;
   onOpenSettings?: () => void;
+  onOpenBookmarks?: () => void;
+  bookmarksCount?: number;
+  isBookmarksActive?: boolean;
   activeSessionId?: string;
 };
 
@@ -86,6 +89,9 @@ export function Header({
   isCurrentSessionWorking = false,
   handleStop,
   onOpenSettings,
+  onOpenBookmarks,
+  bookmarksCount = 0,
+  isBookmarksActive = false,
   activeSessionId = 'session_default',
 }: HeaderProps) {
   const [copiedSessionId, setCopiedSessionId] = useState(false);
@@ -99,18 +105,18 @@ export function Header({
   };
 
   return (
-    <header className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.25rem', borderBottom: '1px solid #e2e8f0', background: 'white' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+    <header className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0.85rem', borderBottom: '1px solid #e2e8f0', background: 'white', width: '100%', boxSizing: 'border-box', overflow: 'hidden', minHeight: '52px', maxHeight: '54px', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, flexShrink: 1, overflow: 'hidden' }}>
         <button
           onClick={toggleSidebar}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.2rem', color: '#64748b', display: 'flex', alignItems: 'center' }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.2rem', color: '#64748b', display: 'flex', alignItems: 'center', flexShrink: 0 }}
           title={isSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
         >
           <PanelLeft size={18} />
         </button>
-        <span style={{ fontWeight: 700, fontSize: '1.05rem', color: '#0f172a', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+        <span style={{ fontWeight: 700, fontSize: '1rem', color: '#0f172a', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '0.35rem', flexShrink: 0 }}>
           FrAssist
-          <span style={{ fontSize: '0.65rem', background: '#dbeafe', color: '#1e40af', padding: '0.15rem 0.45rem', borderRadius: '9999px', fontWeight: 600 }}>v2.5</span>
+          <span style={{ fontSize: '0.62rem', background: '#dbeafe', color: '#1e40af', padding: '0.1rem 0.4rem', borderRadius: '9999px', fontWeight: 600 }}>v2.5</span>
         </span>
 
         {/* Visible Session ID Badge with 1-Click Copy */}
@@ -119,28 +125,30 @@ export function Header({
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '0.35rem',
-            padding: '0.25rem 0.55rem',
+            gap: '0.3rem',
+            padding: '0.2rem 0.5rem',
             background: copiedSessionId ? '#dcfce7' : '#f1f5f9',
             border: `1px solid ${copiedSessionId ? '#86efac' : '#e2e8f0'}`,
             borderRadius: '6px',
-            fontSize: '0.75rem',
+            fontSize: '0.72rem',
             fontFamily: 'monospace',
             color: copiedSessionId ? '#15803d' : '#475569',
             cursor: 'pointer',
             transition: 'all 0.2s ease',
-            maxWidth: '220px'
+            maxWidth: '140px',
+            flexShrink: 1,
+            overflow: 'hidden'
           }}
           title={`Session ID: ${activeSessionId}\nClick to copy for reference or debugging`}
         >
-          <Hash size={12} style={{ color: copiedSessionId ? '#16a34a' : '#94a3b8', flexShrink: 0 }} />
+          <Hash size={11} style={{ color: copiedSessionId ? '#16a34a' : '#94a3b8', flexShrink: 0 }} />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {activeSessionId}
           </span>
           {copiedSessionId ? (
-            <Check size={12} style={{ color: '#16a34a', flexShrink: 0 }} />
+            <Check size={11} style={{ color: '#16a34a', flexShrink: 0 }} />
           ) : (
-            <Copy size={11} style={{ color: '#94a3b8', flexShrink: 0 }} />
+            <Copy size={10} style={{ color: '#94a3b8', flexShrink: 0 }} />
           )}
         </button>
         
@@ -150,28 +158,30 @@ export function Header({
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '0.4rem',
-            padding: '0.35rem 0.75rem',
+            gap: '0.35rem',
+            padding: '0.25rem 0.6rem',
             borderRadius: '8px',
             border: '1px solid #e2e8f0',
             background: pendingApprovalsCount > 0 ? '#fef3c7' : '#f8fafc',
             color: pendingApprovalsCount > 0 ? '#92400e' : '#334155',
             cursor: 'pointer',
-            fontSize: '0.8rem',
+            fontSize: '0.78rem',
             fontWeight: 600,
-            transition: 'all 0.15s ease'
+            transition: 'all 0.15s ease',
+            flexShrink: 0,
+            whiteSpace: 'nowrap'
           }}
           title="Mission Control: Track subagents, approvals, and scheduled jobs"
         >
-          <Activity size={14} color={pendingApprovalsCount > 0 ? '#d97706' : '#64748b'} />
+          <Activity size={13} color={pendingApprovalsCount > 0 ? '#d97706' : '#64748b'} />
           Mission Control
           {pendingApprovalsCount > 0 && (
             <span style={{
               background: '#ef4444',
               color: 'white',
               borderRadius: '9999px',
-              padding: '0.1rem 0.4rem',
-              fontSize: '0.68rem',
+              padding: '0.05rem 0.35rem',
+              fontSize: '0.65rem',
               fontWeight: 700
             }}>
               {pendingApprovalsCount}
@@ -181,9 +191,9 @@ export function Header({
 
         {/* Live Running Task Pill in Header (only when THIS active session is working) */}
         {isCurrentSessionWorking && (
-          <div className="header-task-pill" title="Current Activity">
+          <div className="header-task-pill" style={{ maxWidth: '180px', flexShrink: 1 }} title="Current Activity">
             <span className="header-task-dot" />
-            <span className="header-task-title">
+            <span className="header-task-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {currentStatus || 'Task in progress...'}
             </span>
             {handleStop && (
@@ -199,7 +209,7 @@ export function Header({
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: '0.45rem', alignItems: 'center', flexShrink: 0 }}>
         {/* Model selector — always visible */}
         <select
           value={aiProvider}
@@ -209,13 +219,14 @@ export function Header({
             localStorage.setItem('frassist_ai_provider', val);
             socket?.emit('set_default_llm_provider', { provider: val });
           }}
-          style={{ padding: '0.45rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: 'white', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 500 }}
+          style={{ maxWidth: '180px', textOverflow: 'ellipsis', padding: '0.35rem 0.55rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: 'white', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 500 }}
         >
           <optgroup label="🚀 Smart Routing (Recommended)">
             <option value="auto">⚡ Smart Hybrid Auto-Router</option>
           </optgroup>
 
           <optgroup label="⚡ Ollama Cloud (Top Frontier Models)">
+            <option value="ollama_cloud:glm-5.3:cloud">GLM 5.3 (Frontier Reasoning & Coding)</option>
             <option value="ollama_cloud:glm-5.3-flash:cloud">GLM 5.3 Flash (1M Context - Ultra Fast)</option>
             <option value="ollama_cloud:glm-5.2:cloud">GLM 5.2 (1M Context - Repo Scale)</option>
             <option value="ollama_cloud:deepseek-v4-flash:cloud">DeepSeek V4 Flash (284B MoE)</option>
@@ -237,7 +248,9 @@ export function Header({
             <option value="do:mistral-3-14B">DO Mistral 3 14B (Fast)</option>
           </optgroup>
           
-          <optgroup label="Google Gemini (Google AI Studio)">
+          <optgroup label="Google Gemini / Vertex AI">
+            <option value="gemini:gemini-3.8-flash">Google Gemini 3.8 Flash</option>
+            <option value="gemini:gemini-3.8">Google Gemini 3.8</option>
             <option value="gemini">Google Gemini 3.7 Flash (Default)</option>
             <option value="gemini:gemini-3.7-flash">Google Gemini 3.7 Flash</option>
             <option value="gemini:gemini-3.6-flash">Google Gemini 3.6 Flash</option>
@@ -298,40 +311,80 @@ export function Header({
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '0.4rem',
-            padding: '0.45rem 0.85rem',
+            gap: '0.35rem',
+            padding: '0.35rem 0.65rem',
             borderRadius: '8px',
             border: '1px solid',
             borderColor: whatsappConnected ? '#bbf7d0' : '#e2e8f0',
             background: whatsappConnected ? '#f0fdf4' : 'white',
             color: whatsappConnected ? '#166534' : '#334155',
             cursor: 'pointer',
-            fontSize: '0.85rem',
+            fontSize: '0.8rem',
             fontWeight: 500,
-            transition: 'all 0.2s ease'
+            transition: 'all 0.2s ease',
+            flexShrink: 0
           }}
           title="WhatsApp Multi-Device Connection"
         >
-          <MessageSquare size={15} color={whatsappConnected ? '#25D366' : '#64748b'} />
+          <MessageSquare size={14} color={whatsappConnected ? '#25D366' : '#64748b'} />
           WhatsApp
           <span style={{
-            width: '7px',
-            height: '7px',
+            width: '6px',
+            height: '6px',
             borderRadius: '50%',
             background: whatsappConnected ? '#22c55e' : '#94a3b8',
             display: 'inline-block'
           }} />
         </button>
 
+        {/* Bookmarks Quick Access Button */}
+        {onOpenBookmarks && (
+          <button
+            onClick={onOpenBookmarks}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              padding: '0.35rem 0.65rem',
+              borderRadius: '8px',
+              border: isBookmarksActive ? '1px solid #fde68a' : '1px solid #e2e8f0',
+              background: isBookmarksActive ? '#fef3c7' : 'white',
+              color: isBookmarksActive ? '#b45309' : '#334155',
+              cursor: 'pointer',
+              fontSize: '0.8rem',
+              fontWeight: isBookmarksActive ? 600 : 500,
+              transition: 'all 0.2s ease',
+              flexShrink: 0
+            }}
+            title="Saved Bookmarks (Markdown Notes)"
+          >
+            <Bookmark size={14} color="#d97706" />
+            <span>Bookmarks</span>
+            {bookmarksCount > 0 && (
+              <span style={{
+                background: '#fef3c7',
+                color: '#b45309',
+                fontSize: '0.68rem',
+                fontWeight: 700,
+                padding: '1px 5px',
+                borderRadius: '10px',
+                border: '1px solid #fde68a'
+              }}>
+                {bookmarksCount}
+              </span>
+            )}
+          </button>
+        )}
+
         {/* Settings dropdown */}
-        <div ref={settingsMenuRef} style={{ position: 'relative' }}>
+        <div ref={settingsMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
           <button
             onClick={() => setShowSettingsMenu(v => !v)}
-            style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.45rem 0.85rem', borderRadius: '8px', border: '1px solid #e2e8f0', background: showSettingsMenu ? '#f1f5f9' : 'white', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 500 }}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.35rem 0.65rem', borderRadius: '8px', border: '1px solid #e2e8f0', background: showSettingsMenu ? '#f1f5f9' : 'white', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 500, flexShrink: 0 }}
           >
-            <Settings size={15} />
+            <Settings size={14} />
             Settings
-            <ChevronDown size={13} style={{ transform: showSettingsMenu ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+            <ChevronDown size={12} style={{ transform: showSettingsMenu ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
           </button>
 
           {showSettingsMenu && (
@@ -376,6 +429,9 @@ export function Header({
                 <div style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>Tools & Options</div>
                 {onOpenSettings && (
                   <MenuItem icon={<Settings size={14} color="#2563eb" />} label="Full AI & API Settings..." onClick={() => { onOpenSettings(); setShowSettingsMenu(false); }} />
+                )}
+                {onOpenBookmarks && (
+                  <MenuItem icon={<Bookmark size={14} color="#d97706" />} label="Saved Bookmarks..." onClick={() => { onOpenBookmarks(); setShowSettingsMenu(false); }} />
                 )}
                 <MenuItem icon={<Folder size={14} />} label="Knowledge Base" onClick={() => { setShowFiles(!showFiles); setShowSettingsMenu(false); }} />
                 <MenuItem icon={<Terminal size={14} />} label={showLogs ? 'Hide Log Stream' : 'Show Log Stream'} onClick={() => { setShowLogs(!showLogs); setShowSettingsMenu(false); }} />

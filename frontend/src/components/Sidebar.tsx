@@ -14,7 +14,9 @@ import {
   Settings,
   Brain,
   ChevronDown,
-  Plus
+  Plus,
+  Clock,
+  Bookmark
 } from 'lucide-react';
 import type { Agent, SystemStats, ChatSession } from '../types';
 import { Socket } from 'socket.io-client';
@@ -42,6 +44,9 @@ type SidebarProps = {
   whatsappConnected: boolean;
   onOpenSkills?: () => void;
   onOpenArtifacts?: () => void;
+  onOpenBookmarks?: () => void;
+  bookmarksCount?: number;
+  isBookmarksActive?: boolean;
   onOpenMessaging?: () => void;
   onToggleSidebar?: () => void;
 };
@@ -118,6 +123,9 @@ export function Sidebar({
   whatsappConnected,
   onOpenSkills,
   onOpenArtifacts,
+  onOpenBookmarks,
+  bookmarksCount = 0,
+  isBookmarksActive = false,
   onOpenMessaging,
   onToggleSidebar,
 }: SidebarProps) {
@@ -213,8 +221,10 @@ export function Sidebar({
       return;
     }
     setActiveSessionId(session.id);
-    if (session.channel && session.channel !== activeChannel) {
+    if (session.channel && session.channel !== 'cron' && session.channel !== activeChannel) {
       setActiveChannel(session.channel);
+    } else if (session.channel === 'cron' && activeChannel !== 'web') {
+      setActiveChannel('web');
     }
     socket?.emit('load_session', { sessionId: session.id });
   };
@@ -367,6 +377,35 @@ export function Sidebar({
             <span className="nav-item-label">Artifacts</span>
           </div>
         </button>
+
+        {/* 5. Bookmarks */}
+        <button 
+          onClick={() => {
+            if (onOpenBookmarks) {
+              onOpenBookmarks();
+            }
+          }}
+          className={`macos-nav-item ${isBookmarksActive ? 'active-bookmark' : ''}`}
+          title="View Saved Bookmarks"
+        >
+          <div className="nav-item-left">
+            <Bookmark size={17} className="nav-item-icon" color="#d97706" />
+            <span className="nav-item-label">Bookmarks</span>
+          </div>
+          {bookmarksCount > 0 && (
+            <span style={{
+              background: '#fef3c7',
+              color: '#b45309',
+              fontSize: '0.68rem',
+              fontWeight: 700,
+              padding: '1px 6px',
+              borderRadius: '10px',
+              border: '1px solid #fde68a'
+            }}>
+              {bookmarksCount}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Main Scrollable Content Area */}
@@ -408,8 +447,11 @@ export function Sidebar({
                       </div>
                     )}
 
-                    <span className="session-title-text">
-                      {session.title || 'Untitled Session'}
+                    <span className="session-title-text" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      {(session.channel === 'cron' || session.id.startsWith('session_cron_')) && (
+                        <Clock size={12} style={{ color: '#2563eb', flexShrink: 0 }} />
+                      )}
+                      <span>{session.title || 'Untitled Session'}</span>
                     </span>
 
                     {isSelected ? (
@@ -513,6 +555,17 @@ export function Sidebar({
                     onClick={() => {
                       setSelectedAgentId(agent.id);
                       setActiveChannel('agent');
+                      const agentSession = sessions.find(s => s.targetAgent === agent.id && s.channel === 'agent');
+                      if (agentSession) {
+                        setActiveSessionId(agentSession.id);
+                        socket?.emit('load_session', { sessionId: agentSession.id });
+                      } else {
+                        socket?.emit('create_session', {
+                          channel: 'agent',
+                          targetAgentId: agent.id,
+                          title: `${agent.name} Chat`
+                        });
+                      }
                     }}
                     className={`session-row ${isSelected ? 'selected' : ''}`}
                     title={`${agent.name} (${agent.role}) - Click to chat, click gear to inspect`}
@@ -601,8 +654,11 @@ export function Sidebar({
                       </div>
                     )}
 
-                    <span className="session-title-text">
-                      {session.title || 'Untitled Session'}
+                    <span className="session-title-text" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      {(session.channel === 'cron' || session.id.startsWith('session_cron_')) && (
+                        <Clock size={12} style={{ color: '#2563eb', flexShrink: 0 }} />
+                      )}
+                      <span>{session.title || 'Untitled Session'}</span>
                     </span>
 
                     {isSelected ? (

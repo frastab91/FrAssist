@@ -874,6 +874,7 @@ export function WhatsAppPage({ status, socket, onBackToWorkspace }: WhatsAppPage
                 <option value="auto">⚡ Smart Hybrid Auto-Router</option>
               </optgroup>
               <optgroup label="⚡ Ollama Cloud (Top Frontier Models)">
+                <option value="ollama_cloud:glm-5.3:cloud">GLM 5.3 (Frontier Reasoning & Coding)</option>
                 <option value="ollama_cloud:glm-5.3-flash:cloud">GLM 5.3 Flash (1M Context - Ultra Fast)</option>
                 <option value="ollama_cloud:gemma4:31b-cloud">Gemma 4 31B (Sub-300ms Fast)</option>
                 <option value="ollama_cloud:minimax-m3:cloud">MiniMax M3 (Multilingual Concierge)</option>
@@ -887,7 +888,9 @@ export function WhatsAppPage({ status, socket, onBackToWorkspace }: WhatsAppPage
                 <option value="ollama_cloud:rafw007/deepseek-v4-flash-fast:latest">DeepSeek-V4 Flash Fast (Ops)</option>
                 <option value="ollama_cloud">Ollama Cloud (Default)</option>
               </optgroup>
-              <optgroup label="Google Gemini (Google AI Studio)">
+              <optgroup label="Google Gemini / Vertex AI">
+                <option value="gemini:gemini-3.8-flash">Google Gemini 3.8 Flash</option>
+                <option value="gemini:gemini-3.8">Google Gemini 3.8</option>
                 <option value="gemini">Google Gemini 3.7 Flash (Default)</option>
                 <option value="gemini:gemini-3.7-flash">Google Gemini 3.7 Flash</option>
                 <option value="gemini:gemini-3.6-flash">Google Gemini 3.6 Flash</option>

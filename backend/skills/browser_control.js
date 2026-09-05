@@ -1,17 +1,20 @@
 export const declaration = {
   name: 'browser_control',
-  description: 'Autonomous browser tool for web navigation, searching, interacting with web pages (buttons, inputs, links), and capturing screenshots. Direct execution: navigate directly to a URL, snapshot to inspect elements and get references (e.g. @e1, @e2), click/type using references, and screenshot to verify.',
+  description: 'Autonomous browser tool for web navigation, searching, interacting with web pages (buttons, inputs, links, dropdowns), and capturing screenshots. Actions include navigate, click (by @ref, CSS selector, or visible text), click_text, click_coords, type, press (key or sequence e.g. "Enter" or "ArrowDown, Enter"), snapshot, screenshot, scroll, and wait.',
   parameters: {
     type: 'OBJECT',
     properties: {
       action: { 
         type: 'STRING', 
-        enum: ['navigate', 'click', 'type', 'press', 'snapshot', 'screenshot', 'scroll', 'hover', 'tabs', 'close_tab', 'wait', 'reset', 'init'],
-        description: 'The browser action to perform: "navigate" (opens a URL), "snapshot" (inspects page accessibility tree with element @refs), "click" (clicks an element @ref or CSS selector), "type" (types text into input @ref), "press" (presses key e.g. "Enter"), "scroll" (scrolls down/up), "screenshot" (captures visual proof for user), "wait" (waits N ms).'
+        enum: ['navigate', 'click', 'click_text', 'click_coords', 'select_option', 'type', 'press', 'press_keys', 'snapshot', 'screenshot', 'scroll', 'hover', 'tabs', 'close_tab', 'wait', 'reset', 'init', 'get_text', 'extract_text', 'distill'],
+        description: 'The browser action to perform: "navigate" (opens a URL), "snapshot" (inspects page accessibility tree with element @refs and active dropdown suggestions), "click" (clicks an element @ref, CSS selector, or text), "click_text" (clicks element containing visible text), "type" (types text into input @ref), "get_text" (extracts clean text from a CSS selector, @ref, or article body), "distill" (extracts clean Markdown article content from current page), "press" (presses key), "scroll" (scrolls down/up), "screenshot" (captures visual proof), "wait" (waits N ms).'
       },
       url: { type: 'STRING', description: 'URL for navigate (e.g. https://www.google.com or direct shop URL).' },
-      selector: { type: 'STRING', description: 'Element reference (e.g. @e1, @e2) from snapshot, or CSS selector.' },
-      text: { type: 'STRING', description: 'Text to type into an input field.' },
+      selector: { type: 'STRING', description: 'Element reference (e.g. @e1, @e2) from snapshot, CSS selector (e.g. "article", "div.post-content"), or element text.' },
+      text: { type: 'STRING', description: 'Text to type into an input field, visible text to click when using click_text, or selector for get_text.' },
+      x: { type: 'NUMBER', description: 'X coordinate for click_coords.' },
+      y: { type: 'NUMBER', description: 'Y coordinate for click_coords.' },
+      keys: { type: 'STRING', description: 'Key or comma-separated keys to press (e.g. "Enter" or "ArrowDown, Enter").' },
       tabId: { type: 'STRING', description: 'Target tab ID or label.' },
       waitMs: { type: 'NUMBER', description: 'Milliseconds to wait (e.g. 2000).' },
       annotate: { type: 'BOOLEAN', description: 'If true, screenshot will include numbered labels.' }
@@ -26,7 +29,7 @@ import path from 'path';
 import fs from 'fs';
 
 export async function execute(args) {
-  const { action, url, selector, text, tabId, waitMs, annotate } = args;
+  const { action, url, selector, text, x, y, keys, tabId, waitMs, annotate } = args;
 
   const formatRes = (res) => {
     if (!res) return '';
@@ -35,9 +38,12 @@ export async function execute(args) {
   };
 
   const normalized = (action || '').toLowerCase().trim().replace(/[\s_-]+/g, '_');
-  const useEgo = process.env.BROWSER_PROVIDER === 'ego' && EgoAdapter.isAvailable();
+  const useEgo = (process.env.BROWSER_PROVIDER === 'ego' || !process.env.BROWSER_PROVIDER) && EgoAdapter.isAvailable();
 
   try {
+    if (args.sessionId) {
+      EgoAdapter.setSessionContext(args.sessionId);
+    }
     if (useEgo) {
       switch (normalized) {
         case 'init':
@@ -48,10 +54,38 @@ export async function execute(args) {
         case 'goto':
           return { output: formatRes(await EgoAdapter.navigateAndSnapshot(url)) };
         
+        case 'get_text':
+        case 'extract_text':
+        case 'read_text':
+        case 'get_content':
+          return { output: formatRes(await EgoAdapter.getText(selector || text)) };
+
+        case 'distill':
+        case 'read_page':
+          const distRes = await EgoAdapter.distillPage(url || '', EgoAdapter.getSpaceName(args.sessionId));
+          if (distRes && distRes.text) {
+            let md = '';
+            if (distRes.title) md += `# ${distRes.title}\n\n`;
+            if (distRes.byline) md += `*${distRes.byline}*\n\n`;
+            md += distRes.text;
+            return { output: md };
+          }
+          return { output: distRes?.error || 'No content extracted.' };
+
         case 'click':
         case 'tap':
         case 'select':
-          return { output: formatRes(await EgoAdapter.click(selector)) };
+          return { output: formatRes(await EgoAdapter.click(selector || text, text)) };
+
+        case 'click_text':
+        case 'tap_text':
+        case 'select_option':
+        case 'choose_option':
+          return { output: formatRes(await EgoAdapter.clickText(text || selector)) };
+
+        case 'click_coords':
+        case 'click_at':
+          return { output: formatRes(await EgoAdapter.clickCoords(x || selector, y || text)) };
         
         case 'type':
         case 'keyboard_type':
@@ -83,11 +117,12 @@ export async function execute(args) {
           }
         
         case 'press':
+        case 'press_keys':
         case 'key':
         case 'keypress':
         case 'keydown':
         case 'enter':
-          return { output: formatRes(await EgoAdapter.press(selector || text || 'Enter')) };
+          return { output: formatRes(await EgoAdapter.press(keys || selector || text || 'Enter')) };
         
         case 'scroll':
           return { output: formatRes(await EgoAdapter.scroll(text || 'down', waitMs || 500)) };
@@ -99,12 +134,18 @@ export async function execute(args) {
         case 'sleep':
           return { output: formatRes(await EgoAdapter.wait(waitMs || 2000)) };
         
+        case 'tabs':
+        case 'list_tabs':
+          return { output: formatRes(await EgoAdapter.listTabs()) };
+
+        case 'close_tab':
+          return { output: formatRes(await EgoAdapter.closeTab(tabId)) };
+
         case 'reset':
         case 'stop':
         case 'close':
-        case 'close_tab':
         case 'complete':
-          const closeRes = await EgoAdapter.close();
+          const closeRes = await EgoAdapter.close(EgoAdapter.getSpaceName(args.sessionId));
           return { output: formatRes(closeRes) || 'Ego Lite session closed and task space completed.' };
         
         default:
@@ -123,10 +164,23 @@ export async function execute(args) {
       case 'goto':
         return { output: formatRes(await BrowserManager.navigate(url)) };
       
+      case 'get_text':
+      case 'extract_text':
+        return { output: formatRes(await BrowserManager.snapshot()) };
+      
       case 'click':
       case 'tap':
       case 'select':
-        return { output: formatRes(await BrowserManager.click(selector)) };
+        return { output: formatRes(await BrowserManager.click(selector || text)) };
+
+      case 'click_text':
+      case 'tap_text':
+      case 'select_option':
+        return { output: formatRes(await BrowserManager.clickText(text || selector)) };
+
+      case 'click_coords':
+      case 'click_at':
+        return { output: formatRes(await BrowserManager.clickCoords(x || selector, y || text)) };
       
       case 'type':
       case 'keyboard_type':
@@ -158,11 +212,12 @@ export async function execute(args) {
         }
       
       case 'press':
+      case 'press_keys':
       case 'key':
       case 'keypress':
       case 'keydown':
       case 'enter':
-        return { output: formatRes(await BrowserManager.press(selector || text || 'Enter')) };
+        return { output: formatRes(await BrowserManager.press(keys || selector || text || 'Enter')) };
       
       case 'scroll':
         return { output: formatRes(await BrowserManager.scroll(text || 'down', waitMs || 500)) };

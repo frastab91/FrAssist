@@ -6,8 +6,9 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// Supported Google AI Studio models in priority sequence
+// Supported Google AI Studio / Vertex AI models in priority sequence
 export const GEMINI_MODELS = {
+  FLASH_38: 'gemini-3.8-flash',
   FLASH_PRIMARY: 'gemini-3.7-flash',
   FLASH_PREVIOUS: 'gemini-3.6-flash',
   FLASH_LATEST: 'gemini-flash-latest',
@@ -52,17 +53,23 @@ export function getGeminiClient() {
 }
 
 /**
- * Normalize requested model name for Google AI Studio
+ * Normalize requested model name for Google AI Studio / Vertex AI
  */
 export function normalizeGeminiModel(modelName) {
   if (!modelName || modelName === 'gemini' || modelName === 'gemini_api' || modelName === 'auto') {
     return DEFAULT_MODEL;
   }
   if (modelName.startsWith('gemini:')) {
-    return modelName.substring(7);
+    modelName = modelName.substring(7);
   }
   if (modelName.startsWith('gemini_api:')) {
-    return modelName.substring(11);
+    modelName = modelName.substring(11);
+  }
+  if (modelName.startsWith('vertex:')) {
+    modelName = modelName.substring(7);
+  }
+  if (modelName === 'gemini-3.8') {
+    return GEMINI_MODELS.FLASH_38;
   }
   // If legacy 2.5 flash requested on AI studio, upgrade to 3.7 flash
   if (modelName === 'gemini-2.5-flash' || modelName === 'gemini-1.5-flash') {
@@ -99,6 +106,7 @@ export async function generateGeminiContent({
 
   const fallbackSequence = [
     targetModel,
+    GEMINI_MODELS.FLASH_38,
     GEMINI_MODELS.FLASH_PRIMARY,
     GEMINI_MODELS.FLASH_PREVIOUS,
     GEMINI_MODELS.FLASH_LATEST

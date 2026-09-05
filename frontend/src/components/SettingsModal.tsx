@@ -213,6 +213,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   // Curated Top Ollama Cloud Models
   const curatedCloudModels = [
+    { name: 'glm-5.3:cloud', label: 'GLM 5.3 (Frontier Reasoning & Coding)', badge: 'Flagship', desc: 'Frontier open-weights bilingual reasoning and coding model by Zhipu AI with advanced multi-turn tool calling.' },
     { name: 'glm-5.3-flash:cloud', label: 'GLM 5.3 Flash (1M Context)', badge: 'Ultra Fast', desc: 'Next-generation frontier flash model with 1M context, high reasoning density and sub-second tool responses.' },
     { name: 'glm-5.2:cloud', label: 'GLM 5.2 (1M Context)', badge: 'Repo Scale', desc: 'Frontier open coding model for repo-scale refactors, migrations & long-horizon engineering.' },
     { name: 'deepseek-v4-flash:cloud', label: 'DeepSeek V4 Flash', badge: '284B MoE', desc: 'Fast 1M context MoE with 3 thinking modes, ideal for tool-using agents and hard debugging.' },

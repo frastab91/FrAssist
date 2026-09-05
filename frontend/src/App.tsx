@@ -3,7 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { Bot } from 'lucide-react';
 import './index.css';
 
-import type { Message, LogEvent, Agent, AgentDetails, KeyStatus, ChatSession, TrackerOverview, TaskActivityStep, TaskActivityEvent } from './types';
+import type { Message, LogEvent, Agent, AgentDetails, KeyStatus, ChatSession, TrackerOverview, TaskActivityStep, TaskActivityEvent, BookmarkItem } from './types';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ChatArea } from './components/ChatArea';
@@ -17,6 +17,8 @@ import { UsageDashboard } from './components/UsageDashboard';
 import { WhatsAppPage } from './components/WhatsAppPage';
 import { MissionControlModal } from './components/MissionControlModal';
 import { SettingsModal } from './components/SettingsModal';
+import { BookmarksPage } from './components/BookmarksPage';
+import { globalAudio } from './lib/audioManager';
 
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([
@@ -155,22 +157,47 @@ export default function App() {
     }
   };
 
-  const speak = (text: string) => {
-    if (!isTtsEnabled || !('speechSynthesis' in window)) return;
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'en-US';
-    const voices = window.speechSynthesis.getVoices();
-    const usVoice = voices.find(v => v.lang === 'en-US' || v.lang === 'en_US') ||
-                    voices.find(v => v.lang.startsWith('en-US')) ||
-                    voices.find(v => v.lang.startsWith('en'));
-    if (usVoice) utterance.voice = usVoice;
-    window.speechSynthesis.speak(utterance);
+  const speak = async (text: string) => {
+    if (!isTtsEnabled || !text || !text.trim()) return;
+    try {
+      globalAudio.stop();
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.audioUrl) {
+          globalAudio.playUrl(data.audioUrl);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('[TTS] Google Cloud TTS synthesis error, fallback to WebSpeech:', err);
+    }
+
+    // Fallback if network or backend TTS fails
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'en-US';
+      const voices = window.speechSynthesis.getVoices();
+      const usVoice = voices.find(v => v.lang === 'en-US' || v.lang === 'en_US') ||
+                      voices.find(v => v.lang.startsWith('en-US')) ||
+                      voices.find(v => v.lang.startsWith('en'));
+      if (usVoice) utterance.voice = usVoice;
+      window.speechSynthesis.speak(utterance);
+    }
   };
 
   const toggleTts = () => {
-    setIsTtsEnabled(!isTtsEnabled);
-    if (!isTtsEnabled === false) {
-      window.speechSynthesis.cancel();
+    const next = !isTtsEnabled;
+    setIsTtsEnabled(next);
+    if (!next) {
+      globalAudio.stop();
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
     }
   };
 
@@ -233,12 +260,111 @@ export default function App() {
     fetchTrackerData();
   }, []);
 
+  // Bookmarks State & Handlers
+  const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
+  const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
+  const [currentView, setCurrentView] = useState<'workspace' | 'bookmarks'>('workspace');
+
+  const fetchBookmarks = useCallback(async () => {
+    try {
+      const res = await fetch('/api/bookmarks');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setBookmarks(data.bookmarks || []);
+          setBookmarkedIds(new Set(data.bookmarkedMessageIds || []));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch bookmarks:', err);
+    }
+  }, []);
+
+  const handleToggleBookmark = async (msg: Message) => {
+    const isCurrentlyBookmarked = bookmarkedIds.has(msg.id);
+    if (isCurrentlyBookmarked) {
+      try {
+        const res = await fetch(`/api/bookmarks/message/${encodeURIComponent(msg.id)}`, {
+          method: 'DELETE'
+        });
+        if (res.ok) {
+          setBookmarkedIds(prev => {
+            const next = new Set(prev);
+            next.delete(msg.id);
+            return next;
+          });
+          setBookmarks(prev => prev.filter(b => b.messageId !== msg.id));
+        }
+      } catch (err) {
+        console.error('Failed to remove bookmark:', err);
+      }
+    } else {
+      try {
+        const res = await fetch('/api/bookmarks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messageId: msg.id,
+            content: msg.content,
+            role: msg.role,
+            agentId: msg.agentId,
+            sessionId: activeSessionIdRef.current || 'session_default',
+            model: msg.model || (msg.usage && msg.usage.model),
+            date: msg.timestamp || new Date().toISOString()
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.bookmark) {
+            setBookmarkedIds(prev => new Set(prev).add(msg.id));
+            setBookmarks(prev => [data.bookmark, ...prev.filter(b => b.messageId !== msg.id)]);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to save bookmark:', err);
+      }
+    }
+  };
+
+  const handleDeleteBookmark = async (filename: string) => {
+    try {
+      const res = await fetch(`/api/bookmarks/${encodeURIComponent(filename)}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        const itemToDelete = bookmarks.find(b => b.filename === filename);
+        if (itemToDelete && itemToDelete.messageId) {
+          setBookmarkedIds(prev => {
+            const next = new Set(prev);
+            next.delete(itemToDelete.messageId);
+            return next;
+          });
+        }
+        setBookmarks(prev => prev.filter(b => b.filename !== filename));
+      }
+    } catch (err) {
+      console.error('Failed to delete bookmark:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchBookmarks();
+  }, [fetchBookmarks]);
+
   // Multi-Session & Channel State
   const [activeChannel, setActiveChannel] = useState<'web' | 'whatsapp' | 'telegram' | 'agent'>('web');
   const [activeSessionId, setActiveSessionId] = useState<string>(() => {
     try {
-      const urlParam = new URLSearchParams(window.location.search).get('session');
+      const searchParams = new URLSearchParams(window.location.search);
+      const urlParam = searchParams.get('session');
       if (urlParam) return urlParam;
+
+      // Fallback: check if any query key itself is a session ID (e.g. ?session_178849...=)
+      for (const key of searchParams.keys()) {
+        if (key.startsWith('session_') || key.startsWith('telegram_')) {
+          return key;
+        }
+      }
       const saved = localStorage.getItem('frassist_active_session_id');
       if (saved) return saved;
     } catch (_) {}
@@ -252,20 +378,39 @@ export default function App() {
   const [sessionTaskSteps, setSessionTaskSteps] = useState<Record<string, TaskActivityStep[]>>({});
   const [sessionWorkingMap, setSessionWorkingMap] = useState<Record<string, boolean>>({});
   const [sessionStatusMap, setSessionStatusMap] = useState<Record<string, string>>({});
+  const [sessionToolMap, setSessionToolMap] = useState<Record<string, string | undefined>>({});
   const activeSessionIdRef = useRef(activeSessionId);
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
     try {
       localStorage.setItem('frassist_active_session_id', activeSessionId);
       const currentUrl = new URL(window.location.href);
+      let urlChanged = false;
+
+      // Remove any stray or bare session keys (e.g. ?session_1788...=)
+      const strayKeys: string[] = [];
+      currentUrl.searchParams.forEach((_, key) => {
+        if (key !== 'session' && (key.startsWith('session_') || key.startsWith('telegram_'))) {
+          strayKeys.push(key);
+        }
+      });
+      strayKeys.forEach(k => {
+        currentUrl.searchParams.delete(k);
+        urlChanged = true;
+      });
+
       if (currentUrl.searchParams.get('session') !== activeSessionId) {
         currentUrl.searchParams.set('session', activeSessionId);
+        urlChanged = true;
+      }
+      if (urlChanged) {
         window.history.replaceState({}, '', currentUrl.toString());
       }
     } catch (_) {}
   }, [activeSessionId]);
 
   const handleChannelChange = (channel: 'web' | 'whatsapp' | 'telegram' | 'agent') => {
+    setCurrentView('workspace');
     setActiveChannel(channel);
     if (channel === 'telegram') {
       const tgSession = sessions.find(s => s.channel === 'telegram' || s.id.startsWith('telegram_'));
@@ -357,38 +502,15 @@ export default function App() {
     newSocket.on('connect', () => {
       newSocket.emit('get_active_agents');
       newSocket.emit('get_sessions');
-    });
-
-    newSocket.on('chat_history', (data: { agentId: string; history: any[] }) => {
-      if (data.agentId === 'orchestrator') {
-        const mappedMessages: Message[] = data.history.map((h, idx) => {
-          // Extract text and images, ignore raw tool calls/results in history
-          const textParts = h.parts.filter((p: any) => p.text).map((p: any) => p.text);
-          const content = textParts.join('\n').trim();
-
-          return {
-            id: `hist-${idx}-${Date.now()}`,
-            role: (h.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
-            agentId: data.agentId,
-            content: content,
-          };
-        }).filter(m => m.content !== '');
-        
-        setMessages([
-          {
-            id: '1',
-            role: 'assistant',
-            content: 'Hello! I am your Multi-Agent Personal Assistant. How can I help you today?',
-          },
-          ...mappedMessages
-        ]);
-      }
+      const targetSession = activeSessionIdRef.current || localStorage.getItem('frassist_active_session_id') || 'session_default';
+      newSocket.emit('load_session', { sessionId: targetSession });
     });
 
     newSocket.on('session_working_status', ({ sessionId, isWorking }: { sessionId: string; isWorking: boolean }) => {
       setSessionWorkingMap(prev => ({ ...prev, [sessionId]: isWorking }));
       if (!isWorking) {
         setSessionStatusMap(prev => ({ ...prev, [sessionId]: '' }));
+        setSessionToolMap(prev => ({ ...prev, [sessionId]: undefined }));
       }
       if (sessionId === activeSessionIdRef.current) {
         setIsTyping(isWorking);
@@ -406,7 +528,7 @@ export default function App() {
       }
     });
 
-    newSocket.on('agent_message', (data: { sessionId?: string; agentId: string; content: string; image?: string; images?: string[]; usage?: any; isTool?: boolean; isError?: boolean; steps?: any[] }) => {
+    newSocket.on('agent_message', (data: { sessionId?: string; agentId: string; content: string; image?: string; images?: string[]; audioUrl?: string; usage?: any; isTool?: boolean; isError?: boolean; steps?: any[] }) => {
       if (data.sessionId && data.sessionId !== activeSessionIdRef.current) return;
       const targetSession = data.sessionId || activeSessionIdRef.current;
       if (targetSession === activeSessionIdRef.current) {
@@ -417,6 +539,7 @@ export default function App() {
             lastMsg.role === 'assistant' &&
             lastMsg.agentId === data.agentId &&
             lastMsg.content === data.content &&
+            lastMsg.audioUrl === data.audioUrl &&
             JSON.stringify(lastMsg.usage) === JSON.stringify(data.usage)
           ) {
             return prev;
@@ -431,6 +554,7 @@ export default function App() {
               agentId: data.agentId,
               content: data.content,
               images: data.images ? data.images : (data.image ? [data.image] : undefined),
+              audioUrl: data.audioUrl,
               usage: data.usage,
               isTool: data.isTool,
               isError: data.isError,
@@ -438,7 +562,7 @@ export default function App() {
             },
           ];
         });
-        if (data.content && !data.isTool && !data.isError) {
+        if (data.content && !data.isTool && !data.isError && !data.audioUrl) {
           speak(data.content);
         }
       }
@@ -448,44 +572,52 @@ export default function App() {
       if (data.sessionId) {
         setSessionWorkingMap(prev => ({ ...prev, [data.sessionId!]: data.status === 'working' }));
         setSessionStatusMap(prev => ({ ...prev, [data.sessionId!]: data.status === 'idle' ? '' : (data.message || '') }));
+        setSessionToolMap(prev => ({ ...prev, [data.sessionId!]: data.status === 'idle' ? undefined : data.toolName }));
       }
 
+      const isCurrentSession = !data.sessionId || data.sessionId === activeSessionIdRef.current;
+
       // Only update active UI (isTyping, currentStatus) if event belongs to current active session
-      if (data.sessionId === activeSessionIdRef.current || (!data.sessionId && !activeSessionIdRef.current)) {
+      if (isCurrentSession) {
         if (data.agentId === 'orchestrator' || !data.agentId) {
           setIsTyping(data.status === 'working');
           if (data.status === 'idle') setCurrentStatus('');
           else if (data.message) setCurrentStatus(data.message);
         }
-      }
 
-      setActiveAgents((prev) => {
-        const found = prev.find(a => a.id === data.agentId);
-        if (found) {
-          return prev.map(a => a.id === data.agentId ? {
-            ...a,
-            status: data.status,
-            currentTask: data.message || a.currentTask,
-            activeTool: data.toolName
-          } : a);
-        }
-        return [
-          ...prev,
-          {
-            id: data.agentId,
-            name: data.agentId,
-            role: 'Agent',
-            status: data.status,
-            currentTask: data.message,
-            activeTool: data.toolName,
-            icon: <Bot size={16} />
+        // Only update activeAgents' visible task/tool if this event belongs to current active session
+        // This strictly prevents background/cron tasks from contaminating the active chat UI!
+        setActiveAgents((prev) => {
+          const found = prev.find(a => a.id === data.agentId);
+          if (found) {
+            return prev.map(a => a.id === data.agentId ? {
+              ...a,
+              status: data.status,
+              currentTask: data.message || a.currentTask,
+              activeTool: data.toolName
+            } : a);
           }
-        ];
-      });
+          return [
+            ...prev,
+            {
+              id: data.agentId,
+              name: data.agentId,
+              role: 'Agent',
+              status: data.status,
+              currentTask: data.message,
+              activeTool: data.toolName,
+              icon: <Bot size={16} />
+            }
+          ];
+        });
+      }
     });
 
     newSocket.on('task_activity', (act: TaskActivityEvent) => {
-      const sId = act.sessionId || activeSessionIdRef.current;
+      // CRITICAL: Do NOT fall back to activeSessionIdRef.current if act.sessionId is missing.
+      // Unscoped background activity must NEVER pollute the active session's task activity stream!
+      const sId = act.sessionId;
+      if (!sId) return;
       setSessionTaskSteps(prevMap => {
         const currentSteps = prevMap[sId] || [];
         let updatedSteps = currentSteps;
@@ -588,6 +720,9 @@ export default function App() {
         } else if (act.action === 'complete') {
           updatedSteps = currentSteps.map(s => s.status === 'running' ? { ...s, status: 'completed' as const, durationMs: s.durationMs || (Date.now() - s.timestamp) } : s);
         }
+        if (updatedSteps.length > 50) {
+          updatedSteps = updatedSteps.slice(updatedSteps.length - 50);
+        }
         return { ...prevMap, [sId]: updatedSteps };
       });
     });
@@ -657,6 +792,7 @@ export default function App() {
       setIsTyping(false);
       setSessionWorkingMap(prev => ({ ...prev, [session.id]: false }));
       setSessionStatusMap(prev => ({ ...prev, [session.id]: '' }));
+      setSessionToolMap(prev => ({ ...prev, [session.id]: undefined }));
       setSessionTaskSteps(prev => ({ ...prev, [session.id]: [] }));
       setMessages([
         {
@@ -673,7 +809,11 @@ export default function App() {
       setSubagentsUsed(session?.subagentsUsed || []);
       setCurrentStatus(sessionStatusMap[sessionId] || '');
       setIsTyping(Boolean(sessionWorkingMap[sessionId]));
-      if (session?.channel) setActiveChannel(session.channel);
+      if (session?.channel && session.channel !== 'cron') {
+        setActiveChannel(session.channel);
+      } else {
+        setActiveChannel('web');
+      }
       if (session?.targetAgent && session.targetAgent !== 'orchestrator') {
         setSelectedAgentId(session.targetAgent);
       }
@@ -692,8 +832,8 @@ export default function App() {
           return prev;
         }
         const next = [...prev, data];
-        // Cap at 2000 entries to prevent memory bloat; oldest are trimmed first
-        return next.length > 2000 ? next.slice(next.length - 2000) : next;
+        // Cap at 200 entries to prevent memory bloat and browser crashes
+        return next.length > 200 ? next.slice(next.length - 200) : next;
       });
       // ONLY update currentStatus if this log is for the CURRENT active session
       if (data.agentId === 'orchestrator' && data.sessionId && data.sessionId === activeSessionIdRef.current) {
@@ -703,17 +843,13 @@ export default function App() {
     });
 
     newSocket.on('log_history', (history: LogEvent[]) => {
-      // FIX: MERGE history with existing in-memory logs instead of replacing.
-      // On every reconnect the backend only sends the last 200 persisted entries.
-      // Replacing would wipe any logs that arrived after the last file write.
+      // FIX: MERGE history with existing in-memory logs (capped at 200)
       setLogs((prev) => {
-        if (!prev.length) return history;
-        // Build a Set of already-known IDs so we don't add duplicates
+        if (!prev.length) return (history || []).slice(-200);
         const knownIds = new Set(prev.map((l) => l.id));
-        const newEntries = history.filter((l) => !knownIds.has(l.id));
-        // Prepend historical entries that aren't already in state (they're older)
+        const newEntries = (history || []).filter((l) => !knownIds.has(l.id));
         const merged = [...newEntries, ...prev];
-        return merged.length > 2000 ? merged.slice(merged.length - 2000) : merged;
+        return merged.length > 200 ? merged.slice(merged.length - 200) : merged;
       });
     });
 
@@ -807,14 +943,28 @@ export default function App() {
       setIsGeneratingAgent(false);
     });
 
-    newSocket.on('voice_message', (data: { url: string; text: string }) => {
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        role: 'assistant',
-        agentId: 'orchestrator',
-        content: '',
-        audioUrl: data.url,
-      }]);
+    newSocket.on('voice_message', (data: { url: string; text?: string; sessionId?: string }) => {
+      if (data.sessionId && data.sessionId !== activeSessionIdRef.current) {
+        return;
+      }
+      setMessages(prev => {
+        const last = prev[prev.length - 1];
+        if (last && last.role === 'assistant' && !last.audioUrl) {
+          return prev.map((m, idx) => idx === prev.length - 1 ? { ...m, audioUrl: data.url } : m);
+        }
+        return [...prev, {
+          id: Date.now().toString() + Math.random().toString(36).substring(7),
+          sessionId: data.sessionId || activeSessionIdRef.current,
+          role: 'assistant',
+          agentId: 'orchestrator',
+          content: '',
+          audioUrl: data.url,
+        }];
+      });
+    });
+
+    newSocket.on('bookmarks_updated', () => {
+      fetchBookmarks();
     });
 
     return () => {
@@ -899,6 +1049,7 @@ export default function App() {
     if (socket) socket.emit('stop_generation', { sessionId: target });
     setSessionWorkingMap(prev => ({ ...prev, [target]: false }));
     setSessionStatusMap(prev => ({ ...prev, [target]: '' }));
+    setSessionToolMap(prev => ({ ...prev, [target]: undefined }));
     if (target === activeSessionId) {
       setIsTyping(false);
       setCurrentStatus('');
@@ -1096,12 +1247,25 @@ export default function App() {
   }, [messages]);
 
   const handleNewChat = () => {
+    setCurrentView('workspace');
     setSelectedImages([]);
     setInput('');
     socket?.emit('create_session', {
       channel: activeChannel,
       targetAgentId: selectedAgentId || 'orchestrator'
     });
+  };
+
+  const handleSelectSession = (sessionId: string) => {
+    setCurrentView('workspace');
+    setActiveSessionId(sessionId);
+    socket?.emit('load_session', { sessionId });
+    const target = sessions.find(s => s.id === sessionId);
+    if (target?.channel && target.channel !== 'cron') {
+      setActiveChannel(target.channel);
+    } else {
+      setActiveChannel('web');
+    }
   };
 
   const handleDeleteSession = (sessionId: string) => {
@@ -1112,6 +1276,11 @@ export default function App() {
       return next;
     });
     setSessionStatusMap(prev => {
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+    setSessionToolMap(prev => {
       const next = { ...prev };
       delete next[sessionId];
       return next;
@@ -1153,12 +1322,16 @@ export default function App() {
           activeChannel={activeChannel}
           setActiveChannel={handleChannelChange}
           activeSessionId={activeSessionId}
-          setActiveSessionId={setActiveSessionId}
+          setActiveSessionId={(id) => {
+            setCurrentView('workspace');
+            setActiveSessionId(id);
+          }}
           sessions={sessions}
           sessionWorkingMap={sessionWorkingMap}
           onNewChat={handleNewChat}
           onDeleteSession={handleDeleteSession}
           onOpenWhatsApp={() => {
+            setCurrentView('workspace');
             setActiveChannel('whatsapp');
             setSelectedAgentId(null);
           }}
@@ -1174,7 +1347,14 @@ export default function App() {
             fetchFiles();
             setShowFiles(true);
           }}
+          onOpenBookmarks={() => {
+            fetchBookmarks();
+            setCurrentView(prev => prev === 'bookmarks' ? 'workspace' : 'bookmarks');
+          }}
+          bookmarksCount={bookmarks.length}
+          isBookmarksActive={currentView === 'bookmarks'}
           onOpenMessaging={() => {
+            setCurrentView('workspace');
             setActiveChannel(activeChannel === 'whatsapp' ? 'web' : 'whatsapp');
             setSelectedAgentId(null);
           }}
@@ -1206,6 +1386,7 @@ export default function App() {
           socket={socket}
           ollamaStatus={ollamaStatus}
           onOpenWhatsApp={() => {
+            setCurrentView('workspace');
             setActiveChannel('whatsapp');
             setSelectedAgentId(null);
           }}
@@ -1220,10 +1401,27 @@ export default function App() {
           isCurrentSessionWorking={Boolean(sessionWorkingMap[activeSessionId])}
           handleStop={() => handleStop(activeSessionId)}
           onOpenSettings={() => setShowSettingsModal(true)}
+          onOpenBookmarks={() => {
+            fetchBookmarks();
+            setCurrentView(prev => prev === 'bookmarks' ? 'workspace' : 'bookmarks');
+          }}
+          bookmarksCount={bookmarks.length}
+          isBookmarksActive={currentView === 'bookmarks'}
           activeSessionId={activeSessionId}
         />
 
-        {activeChannel === 'whatsapp' ? (
+        {currentView === 'bookmarks' ? (
+          <BookmarksPage
+            bookmarks={bookmarks}
+            onRefresh={fetchBookmarks}
+            onDeleteBookmark={handleDeleteBookmark}
+            onSelectSession={(sessionId) => {
+              handleSelectSession(sessionId);
+              setCurrentView('workspace');
+            }}
+            onBackToWorkspace={() => setCurrentView('workspace')}
+          />
+        ) : activeChannel === 'whatsapp' ? (
           <WhatsAppPage
             status={whatsappStatus}
             socket={socket}
@@ -1236,6 +1434,7 @@ export default function App() {
               activeAgents={activeAgents}
               logs={logs}
               currentStatus={sessionStatusMap[activeSessionId] || ''}
+              activeTool={sessionToolMap[activeSessionId]}
               taskSteps={sessionTaskSteps[activeSessionId] || []}
               isCurrentSessionWorking={Boolean(sessionWorkingMap[activeSessionId])}
               activeSessionId={activeSessionId}
@@ -1247,6 +1446,8 @@ export default function App() {
               sessionTitle={sessionTitle}
               subagentsUsed={subagentsUsed}
               onOpenLogs={() => setShowLogs(true)}
+              bookmarkedMessageIds={bookmarkedIds}
+              onToggleBookmark={handleToggleBookmark}
             />
 
             <InputArea
@@ -1335,6 +1536,10 @@ export default function App() {
           setSelectedAgentId(agentId);
           setShowInspector(true);
           socket?.emit('request_agent_details', { agentId });
+        }}
+        onSelectSession={(sessionId) => {
+          handleSelectSession(sessionId);
+          setShowMissionControl(false);
         }}
       />
 

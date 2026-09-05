@@ -360,6 +360,36 @@ export class BrowserManager {
     return await this.snapshot();
   }
 
+  static async clickText(text) {
+    const { page } = await this.getContext();
+    if (!text) throw new Error('Text to click is required');
+    await page.evaluate((txt) => {
+      const q = txt.trim().toLowerCase();
+      const candidates = Array.from(document.querySelectorAll('button, a, [role="button"], [role="option"], [role="link"], li, div, span, p'));
+      let target = candidates.find(el => el.offsetParent !== null && (el.innerText || '').trim().toLowerCase() === q);
+      if (!target) {
+        const matches = candidates.filter(el => el.offsetParent !== null && (el.innerText || '').toLowerCase().includes(q));
+        if (matches.length > 0) {
+          matches.sort((a, b) => (a.innerText || '').length - (b.innerText || '').length);
+          target = matches[0];
+        }
+      }
+      if (target) {
+        target.scrollIntoView({ block: 'center' });
+        target.click();
+      }
+    }, text);
+    await page.waitForTimeout(1000);
+    return await this.snapshot();
+  }
+
+  static async clickCoords(x, y) {
+    const { page } = await this.getContext();
+    await page.mouse.click(Number(x) || 0, Number(y) || 0);
+    await page.waitForTimeout(1000);
+    return await this.snapshot();
+  }
+
   static async type(selector, text) {
     const { page } = await this.getContext();
     if (!text) throw new Error('Text to type is required');

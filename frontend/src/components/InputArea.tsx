@@ -70,7 +70,7 @@ export function InputArea({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      style={{ position: 'relative' }}
+      style={{ position: 'relative', flexShrink: 0, boxSizing: 'border-box' }}
     >
       {selectedAgentId && selectedAgentId !== 'orchestrator' && activeAgent && (
         <div style={{
@@ -201,9 +201,9 @@ export function InputArea({
               setShowSuggestions(false);
             }
             
-            // Auto-resize textarea
+            // Auto-resize textarea bounded to 100px max
             e.target.style.height = 'auto';
-            e.target.style.height = e.target.scrollHeight + 'px';
+            e.target.style.height = Math.min(e.target.scrollHeight, 100) + 'px';
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -313,7 +313,7 @@ export function InputArea({
           <div ref={(el) => el?.scrollIntoView({ behavior: 'smooth' })} />
         </div>
       )}
-      <div style={{ padding: '0.25rem 1rem 0.5rem', textAlign: 'right', fontSize: '0.65rem', color: currentContextTokens > 150000 ? '#ef4444' : '#94a3b8', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', alignItems: 'center' }}>
+      <div style={{ padding: '0.15rem 0.75rem 0.25rem', textAlign: 'right', fontSize: '0.65rem', color: currentContextTokens > 150000 ? '#ef4444' : '#94a3b8', display: 'flex', justifyContent: 'flex-end', gap: '0.4rem', alignItems: 'center' }}>
         <span>Current Session Context:</span>
         <span style={{ fontWeight: 600, fontFamily: 'monospace' }}>
           {currentContextTokens >= 1000 ? (currentContextTokens / 1000).toFixed(1) + 'k' : currentContextTokens} tokens

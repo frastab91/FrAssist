@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Bot, X, Shield, Terminal, Brain, Calendar, Clock, CheckCircle2 } from 'lucide-react';
+import { Bot, X, Shield, Terminal, Brain, Calendar, Clock, CheckCircle2, Search } from 'lucide-react';
 import type { AgentDetails } from '../types';
 import { formatCronDescription } from '../lib/cronFormatter';
 
@@ -16,6 +17,21 @@ export function AgentInspectorModal({
   inspectorTab,
   setInspectorTab,
 }: AgentInspectorModalProps) {
+  const [scheduleSearch, setScheduleSearch] = useState('');
+
+  const agentJobs = selectedAgentDetails.jobs || [];
+  const filteredAgentJobs = agentJobs.filter(job => {
+    if (!scheduleSearch.trim()) return true;
+    const q = scheduleSearch.toLowerCase().trim();
+    return (
+      (job.name || '').toLowerCase().includes(q) ||
+      (job.task || '').toLowerCase().includes(q) ||
+      (job.cron || '').toLowerCase().includes(q) ||
+      formatCronDescription(job.cron).toLowerCase().includes(q) ||
+      (job.status || '').toLowerCase().includes(q)
+    );
+  });
+
   return (
     <div 
       className="modal-overlay" 
@@ -96,10 +112,80 @@ export function AgentInspectorModal({
           {inspectorTab === 'schedule' && (
             <div className="inspector-pane">
               <div className="schedule-section">
-                <h3>Automated Jobs & Cadence</h3>
-                {selectedAgentDetails.jobs && selectedAgentDetails.jobs.length > 0 ? (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <h3 style={{ margin: 0 }}>Automated Jobs & Cadence</h3>
+                  {agentJobs.length > 0 && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      background: '#ffffff',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '6px',
+                      padding: '0.3rem 0.6rem',
+                      minWidth: '200px'
+                    }}>
+                      <Search size={13} color="#64748b" />
+                      <input
+                        type="text"
+                        placeholder="Search agent schedule..."
+                        value={scheduleSearch}
+                        onChange={(e) => setScheduleSearch(e.target.value)}
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          outline: 'none',
+                          fontSize: '0.78rem',
+                          width: '100%',
+                          color: '#0f172a'
+                        }}
+                      />
+                      {scheduleSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setScheduleSearch('')}
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0 }}
+                          title="Clear search"
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {agentJobs.length === 0 ? (
+                  <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>No periodic background jobs scheduled directly for this agent.</p>
+                ) : filteredAgentJobs.length === 0 ? (
+                  <div style={{
+                    padding: '1.5rem',
+                    textAlign: 'center',
+                    background: '#f8fafc',
+                    borderRadius: '8px',
+                    border: '1px dashed #cbd5e1'
+                  }}>
+                    <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b' }}>
+                      No jobs match &ldquo;{scheduleSearch}&rdquo;.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setScheduleSearch('')}
+                      style={{
+                        marginTop: '0.5rem',
+                        padding: '0.3rem 0.6rem',
+                        borderRadius: '5px',
+                        border: '1px solid #cbd5e1',
+                        background: '#ffffff',
+                        fontSize: '0.75rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Clear Search
+                    </button>
+                  </div>
+                ) : (
                   <div className="jobs-list" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '0.75rem' }}>
-                    {selectedAgentDetails.jobs.map((job) => (
+                    {filteredAgentJobs.map((job) => (
                       <div 
                         key={job.id} 
                         style={{ 
@@ -141,8 +227,6 @@ export function AgentInspectorModal({
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>No periodic background jobs scheduled directly for this agent.</p>
                 )}
               </div>
             </div>

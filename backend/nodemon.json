@@ -16,7 +16,8 @@
     "tasks/",
     "audio/",
     "database.sqlite",
-    "data/"
+    "data/",
+    "bookmarks/"
   ],
   "ext": "js,mjs,json"
 }

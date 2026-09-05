@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, Terminal, ChevronDown, ChevronRight, CheckCircle2, AlertCircle, Wrench } from 'lucide-react';
+import { Bot, Terminal, ChevronDown, ChevronRight, CheckCircle2, AlertCircle, Wrench, Bookmark, Copy, Check } from 'lucide-react';
 import type { Message, Agent, LogEvent, TaskActivityStep } from '../types';
 import { TaskExecutionCard } from './TaskExecutionCard';
 import { ArticleCard } from './ArticleCard';
@@ -23,6 +23,9 @@ type ChatAreaProps = {
   onOpenLogs?: () => void;
   isCurrentSessionWorking?: boolean;
   activeSessionId?: string;
+  bookmarkedMessageIds?: Set<string> | string[];
+  onToggleBookmark?: (message: Message) => void;
+  activeTool?: string;
 };
 
 function consolidateArticleBlocks(content: string): string {
@@ -173,7 +176,26 @@ export function ChatArea({
   onOpenLogs,
   isCurrentSessionWorking = false,
   activeSessionId,
+  bookmarkedMessageIds,
+  onToggleBookmark,
+  activeTool,
 }: ChatAreaProps) {
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+
+  const handleCopyMessage = (msg: Message) => {
+    navigator.clipboard.writeText(msg.content);
+    setCopiedMessageId(msg.id);
+    setTimeout(() => setCopiedMessageId(null), 1500);
+  };
+
+  const isBookmarked = (id: string) => {
+    if (!bookmarkedMessageIds) return false;
+    if (bookmarkedMessageIds instanceof Set) {
+      return bookmarkedMessageIds.has(id);
+    }
+    return Array.isArray(bookmarkedMessageIds) && bookmarkedMessageIds.includes(id);
+  };
+
   const selectedAgent = activeAgents.find(a => a.id === selectedAgentId);
 
   // Filter telemetry logs strictly to this active session or global system logs
@@ -187,14 +209,21 @@ export function ChatArea({
       return [];
     }
     const targetAgentId = selectedAgentId || 'orchestrator';
-    const primaryAgent = activeAgents.find(a => a.id === targetAgentId) || {
+    const baseAgent = activeAgents.find(a => a.id === targetAgentId) || {
       id: targetAgentId,
       name: targetAgentId === 'orchestrator' ? 'Orchestrator' : targetAgentId,
       role: targetAgentId === 'orchestrator' ? 'Main Controller' : 'Agent',
       status: 'working'
     };
+    // Ensure the agent object strictly reflects THIS session's status and active tool
+    const primaryAgent: Agent = {
+      ...baseAgent,
+      status: 'working',
+      currentTask: currentStatus || baseAgent.currentTask,
+      activeTool: activeTool || undefined,
+    };
     return [primaryAgent];
-  }, [isCurrentSessionWorking, taskSteps, selectedAgentId, activeAgents]);
+  }, [isCurrentSessionWorking, taskSteps, selectedAgentId, activeAgents, currentStatus, activeTool]);
 
   const markdownComponents = useMemo(() => ({
     p: ({ children }: any) => (
@@ -282,31 +311,32 @@ export function ChatArea({
   }), [setEnlargedImage]);
 
   return (
-    <div className="chat-container" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="chat-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, flex: '1 1 0%', overflow: 'hidden' }}>
       {/* Session Breadcrumb & Sub-Agent Tags Banner */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '0.55rem 1.25rem',
+        padding: '0.4rem 1.25rem',
         background: '#f8fafc',
         borderBottom: '1px solid #e2e8f0',
-        fontSize: '0.78rem',
-        color: '#64748b'
+        fontSize: '0.75rem',
+        color: '#64748b',
+        flexShrink: 0
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span style={{ fontWeight: 600, color: '#334155' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, overflow: 'hidden' }}>
+          <span style={{ fontWeight: 600, color: '#334155', whiteSpace: 'nowrap' }}>
             {activeChannel === 'whatsapp' ? '📱 WhatsApp Channel' :
              activeChannel === 'telegram' ? '✈️ Telegram Channel' :
              selectedAgent ? `🤖 Talking directly to ${selectedAgent.name}` :
              '🌐 Main Workspace'}
           </span>
           {sessionTitle && sessionTitle !== 'New Workspace Chat' && (
-            <span style={{ color: '#94a3b8' }}>• {sessionTitle}</span>
+            <span style={{ color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>• {sessionTitle}</span>
           )}
         </div>
         {subagentsUsed && subagentsUsed.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexShrink: 0 }}>
             <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Agents:</span>
             {subagentsUsed.map((agentId) => (
               <span key={agentId} style={{
@@ -325,7 +355,7 @@ export function ChatArea({
         )}
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
+      <div style={{ flex: '1 1 0%', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '1rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       {messages.map((msg) => (
         <div key={msg.id} className={`message-wrapper ${msg.role} ${msg.isTool ? 'tool-message' : ''}`}>
           <div 
@@ -336,8 +366,129 @@ export function ChatArea({
             }}
           >
             {msg.role === 'assistant' && !msg.isTool && (
-              <div className="message-header" style={{ color: msg.isError ? '#991b1b' : undefined }}>
-                <Bot size={14} /> {activeAgents.find(a => a.id === msg.agentId)?.name || msg.agentId || 'Orchestrator'}
+              <div className="message-header" style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                color: msg.isError ? '#991b1b' : undefined,
+                marginBottom: '0.45rem'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                  <Bot size={14} /> {activeAgents.find(a => a.id === msg.agentId)?.name || msg.agentId || 'Orchestrator'}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <button
+                    onClick={() => handleCopyMessage(msg)}
+                    title={copiedMessageId === msg.id ? 'Copied to clipboard' : 'Copy message'}
+                    aria-label="Copy message"
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '2px 5px',
+                      borderRadius: '4px',
+                      color: copiedMessageId === msg.id ? '#16a34a' : '#94a3b8',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      transition: 'all 0.15s ease'
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.color = '#334155')}
+                    onMouseLeave={e => (e.currentTarget.style.color = copiedMessageId === msg.id ? '#16a34a' : '#94a3b8')}
+                  >
+                    {copiedMessageId === msg.id ? <Check size={13} /> : <Copy size={13} />}
+                  </button>
+                  {onToggleBookmark && (
+                    <button
+                      onClick={() => onToggleBookmark(msg)}
+                      title={isBookmarked(msg.id) ? 'Saved in bookmarks/ (click to remove)' : 'Bookmark message to MD file'}
+                      aria-label="Bookmark message"
+                      style={{
+                        background: isBookmarked(msg.id) ? '#fef3c7' : 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '2px 5px',
+                        borderRadius: '4px',
+                        color: isBookmarked(msg.id) ? '#d97706' : '#94a3b8',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={e => {
+                        if (!isBookmarked(msg.id)) e.currentTarget.style.color = '#d97706';
+                      }}
+                      onMouseLeave={e => {
+                        if (!isBookmarked(msg.id)) e.currentTarget.style.color = '#94a3b8';
+                      }}
+                    >
+                      <Bookmark 
+                        size={14} 
+                        fill={isBookmarked(msg.id) ? '#f59e0b' : 'none'} 
+                        color={isBookmarked(msg.id) ? '#d97706' : 'currentColor'} 
+                      />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            {msg.role === 'user' && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+                gap: '0.35rem',
+                marginBottom: '0.35rem',
+                opacity: 0.85
+              }}>
+                <button
+                  onClick={() => handleCopyMessage(msg)}
+                  title={copiedMessageId === msg.id ? 'Copied' : 'Copy prompt'}
+                  aria-label="Copy prompt"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '2px 4px',
+                    borderRadius: '4px',
+                    color: copiedMessageId === msg.id ? '#86efac' : 'rgba(255,255,255,0.7)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    transition: 'all 0.15s ease'
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.color = '#ffffff')}
+                  onMouseLeave={e => (e.currentTarget.style.color = copiedMessageId === msg.id ? '#86efac' : 'rgba(255,255,255,0.7)')}
+                >
+                  {copiedMessageId === msg.id ? <Check size={12} /> : <Copy size={12} />}
+                </button>
+                {onToggleBookmark && (
+                  <button
+                    onClick={() => onToggleBookmark(msg)}
+                    title={isBookmarked(msg.id) ? 'Saved in bookmarks/ (click to remove)' : 'Bookmark prompt to MD file'}
+                    aria-label="Bookmark prompt"
+                    style={{
+                      background: isBookmarked(msg.id) ? 'rgba(253, 224, 71, 0.2)' : 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '2px 4px',
+                      borderRadius: '4px',
+                      color: isBookmarked(msg.id) ? '#fde047' : 'rgba(255,255,255,0.7)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      transition: 'all 0.15s ease'
+                    }}
+                    onMouseEnter={e => {
+                      if (!isBookmarked(msg.id)) e.currentTarget.style.color = '#fde047';
+                    }}
+                    onMouseLeave={e => {
+                      if (!isBookmarked(msg.id)) e.currentTarget.style.color = isBookmarked(msg.id) ? '#fde047' : 'rgba(255,255,255,0.7)';
+                    }}
+                  >
+                    <Bookmark 
+                      size={13} 
+                      fill={isBookmarked(msg.id) ? '#fde047' : 'none'} 
+                      color={isBookmarked(msg.id) ? '#fde047' : 'currentColor'} 
+                    />
+                  </button>
+                )}
               </div>
             )}
             {msg.isTool && (
@@ -429,6 +580,7 @@ export function ChatArea({
           key={`exec-${agent.id}`} 
           agent={agent} 
           currentStatus={currentStatus} 
+          activeTool={activeTool}
           logs={sessionLogs}
           steps={taskSteps}
           handleStop={handleStop}

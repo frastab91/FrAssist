@@ -30,6 +30,8 @@ import { recordTokenUsage, estimateTokens, setTokenTrackerIO, setTokenTrackerDb 
 import { fetchOllamaCloudWithFailover, fetchOllamaCloudModels, testOllamaCloudInference } from './services/ollama_client.js';
 import { generateGeminiContent, testGeminiInference, hasGeminiKey, GEMINI_MODELS } from './services/geminiService.js';
 import { routeTask, getRouterConfig, updateRouterConfig, resetRouterConfig, setRouterDb, getFriendlyModelName } from './services/modelRouter.js';
+import { DataRetentionManager } from './services/dataRetention.js';
+import { PerformanceAuditLogger } from './services/auditLogger.js';
 
 let dbPromise = null;
 const dynamicSkills = new Map();
@@ -288,6 +290,7 @@ function initDb() {
         images TEXT DEFAULT '[]',
         usage TEXT,
         is_tool INTEGER DEFAULT 0,
+        audio_url TEXT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -335,42 +338,27 @@ function initDb() {
     } catch (_) {
       // Column already exists
     }
+    try {
+      await db.exec(`ALTER TABLE chat_messages ADD COLUMN audio_url TEXT`);
+    } catch (_) {
+      // Column already exists
+    }
     setTokenTrackerDb(db);
     setRouterDb(db);
+    DataRetentionManager.setDb(db);
+    PerformanceAuditLogger.setDb(db);
 
     console.log('SQLite Database initialized with Session, Message & WhatsApp Auto-Reply tables');
-    await cleanupOldSessions(db);
+    
+    // Start automatic data retention lifecycle watchdog
+    DataRetentionManager.startWatchdog();
     return db;
   });
 }
 
-// 7-day TTL Cleanup Routine
-async function cleanupOldSessions(dbInstance = null) {
-  try {
-    const db = dbInstance || (await dbPromise);
-    if (!db) return;
-    
-    // Delete sessions and messages older than 7 days
-    await db.run(`
-      DELETE FROM chat_messages WHERE session_id IN (
-        SELECT id FROM chat_sessions WHERE updated_at < datetime('now', '-7 days')
-      )
-    `);
-    const sessionResult = await db.run(`
-      DELETE FROM chat_sessions WHERE updated_at < datetime('now', '-7 days')
-    `);
-
-    if (sessionResult && sessionResult.changes > 0) {
-      console.log(`[7-Day TTL] Automatically cleaned up ${sessionResult.changes} expired session(s).`);
-    }
-  } catch (err) {
-    console.error('[7-Day TTL] Error cleaning up old sessions:', err);
-  }
-}
-
-// Schedule TTL cleanup every 6 hours
-cron.schedule('0 */6 * * *', () => {
-  cleanupOldSessions();
+// Scheduled retention sweep every 2 hours
+cron.schedule('0 */2 * * *', () => {
+  DataRetentionManager.runFullCleanup().catch(err => console.error('[DataRetention] Scheduled cleanup error:', err));
 });
 
 // Session Helper Functions
@@ -382,9 +370,10 @@ async function getOrCreateSession(sessionId = 'session_default', channel = 'web'
   let session = await db.get(`SELECT * FROM chat_sessions WHERE id = ?`, [sessionId]);
   if (!session) {
     const initialSubagents = JSON.stringify([targetAgent || 'orchestrator']);
-    let title = initialPrompt ? initialPrompt.slice(0, 45).trim() + (initialPrompt.length > 45 ? '...' : '') : 'New Workspace Chat';
+    let title = initialPrompt ? initialPrompt.slice(0, 55).trim() + (initialPrompt.length > 55 ? '...' : '') : 'New Workspace Chat';
     if (channel === 'whatsapp') title = 'WhatsApp Conversation';
     if (channel === 'telegram') title = 'Telegram Conversation';
+    if (channel === 'cron') title = initialPrompt || '⏰ Cron Job Execution';
 
     await db.run(
       `INSERT INTO chat_sessions (id, title, channel, target_agent, subagents_used, created_at, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
@@ -395,7 +384,7 @@ async function getOrCreateSession(sessionId = 'session_default', channel = 'web'
   return session;
 }
 
-async function recordMessageInSession(sessionId, msgData) {
+async function recordMessageInSession(sessionId, msgData, isTool = false) {
   try {
     const db = await dbPromise;
     if (!db) return;
@@ -403,11 +392,12 @@ async function recordMessageInSession(sessionId, msgData) {
     const msgId = msgData.id || `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     const imgJson = JSON.stringify(msgData.images || (msgData.image ? [msgData.image] : []));
     const usageJson = msgData.usage ? JSON.stringify(msgData.usage) : null;
-    const isToolVal = msgData.isTool ? 1 : 0;
+    const audioUrlVal = msgData.audioUrl || null;
+    const isToolVal = (msgData.isTool || msgData.is_tool || isTool) ? 1 : 0;
 
     await db.run(
-      `INSERT OR REPLACE INTO chat_messages (id, session_id, role, agent_id, content, images, usage, is_tool, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-      [msgId, targetSessionId, msgData.role, msgData.agentId || 'orchestrator', msgData.content || '', imgJson, usageJson, isToolVal]
+      `INSERT OR REPLACE INTO chat_messages (id, session_id, role, agent_id, content, images, usage, is_tool, audio_url, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [msgId, targetSessionId, msgData.role, msgData.agentId || 'orchestrator', msgData.content || '', imgJson, usageJson, isToolVal, audioUrlVal]
     );
 
     // Update session's updated_at and subagents_used
@@ -420,7 +410,7 @@ async function recordMessageInSession(sessionId, msgData) {
       }
 
       let title = session.title;
-      if ((title === 'New Workspace Chat' || !title) && msgData.role === 'user' && msgData.content) {
+      if (session.channel !== 'cron' && (title === 'New Workspace Chat' || !title) && msgData.role === 'user' && msgData.content) {
         title = msgData.content.slice(0, 45).trim() + (msgData.content.length > 45 ? '...' : '');
       }
 
@@ -469,6 +459,7 @@ async function getSessionMessages(sessionId) {
       agentId: r.agent_id,
       content: r.content,
       images: images.length > 0 ? images : undefined,
+      audioUrl: r.audio_url || undefined,
       usage,
       isTool: Boolean(r.is_tool),
       timestamp: r.timestamp
@@ -481,6 +472,14 @@ async function deleteSession(sessionId) {
   if (!db) return;
   await db.run(`DELETE FROM chat_messages WHERE session_id = ?`, [sessionId]);
   await db.run(`DELETE FROM chat_sessions WHERE id = ?`, [sessionId]);
+  // Prune temporary artifacts generated by session
+  try {
+    DataRetentionManager.pruneDirectory(
+      path.join(process.cwd(), 'screenshots'),
+      DataRetentionManager.config.screenshotRetentionHours,
+      DataRetentionManager.config.mediaDirMaxBytes
+    );
+  } catch (_) {}
 }
 
 initDb();
@@ -494,6 +493,26 @@ app.use('/screenshots', express.static(path.join(process.cwd(), 'screenshots')))
 if (!fs.existsSync(path.join(process.cwd(), 'screenshots'))) fs.mkdirSync(path.join(process.cwd(), 'screenshots'));
 if (!fs.existsSync(path.join(process.cwd(), 'audio'))) fs.mkdirSync(path.join(process.cwd(), 'audio'));
 app.use('/audio', express.static(path.join(process.cwd(), 'audio')));
+
+// Performance Audit and Maintenance REST Endpoints
+app.get('/api/audit/summary', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days, 10) || 7;
+    const report = await PerformanceAuditLogger.getSummaryReport(days);
+    res.json(report);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/maintenance/cleanup', async (req, res) => {
+  try {
+    const summary = await DataRetentionManager.runFullCleanup();
+    res.json({ success: true, summary });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
@@ -524,6 +543,13 @@ async function loadAvailableAgents() {
     .filter(dirent => dirent.isDirectory())
     .map(dirent => dirent.name);
   
+  let db = null;
+  if (typeof dbPromise !== 'undefined') {
+    try {
+      db = await dbPromise;
+    } catch {}
+  }
+
   for (const name of dirs) {
     const displayName = name.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
     const systemPath = path.join(agentsDir, name, 'system.md');
@@ -538,10 +564,8 @@ async function loadAvailableAgents() {
       const role = name === 'orchestrator' ? 'Main Controller' : 'Specialized Agent';
       activeAgents.set(name, { id: name, name: displayName, role, status: 'idle' });
       
-      if (typeof dbPromise !== 'undefined') {
-        dbPromise.then(db => {
-          db.run('INSERT OR IGNORE INTO active_agents (agentId, name, role, status) VALUES (?, ?, ?, ?)', [name, displayName, role, 'idle']).catch(() => {});
-        }).catch(() => {});
+      if (db) {
+        await db.run('INSERT OR REPLACE INTO active_agents (agentId, name, role, status) VALUES (?, ?, ?, ?)', [name, displayName, role, 'idle']).catch(() => {});
       }
     }
   }
@@ -570,8 +594,39 @@ if (!fs.existsSync(path.join(process.cwd(), 'data'))) fs.mkdirSync(path.join(pro
 
 const activeSessionRuns = new Map();
 
+function sanitizeLogPayload(val, maxLen = 1000) {
+  if (val === null || val === undefined) return val;
+  if (typeof val === 'string') {
+    return val.length > maxLen ? val.slice(0, maxLen) + '... [truncated]' : val;
+  }
+  if (typeof val === 'object') {
+    try {
+      // If object has a giant output/content property (e.g. browser snapshot), truncate it
+      const copy = Array.isArray(val) ? [...val] : { ...val };
+      for (const k of Object.keys(copy)) {
+        if (typeof copy[k] === 'string' && copy[k].length > maxLen) {
+          copy[k] = copy[k].slice(0, maxLen) + '... [truncated]';
+        }
+      }
+      const str = JSON.stringify(copy);
+      if (str.length > maxLen * 2) {
+        return { summary: str.slice(0, maxLen) + '... [truncated]' };
+      }
+      return copy;
+    } catch (_) {
+      return '[Object]';
+    }
+  }
+  return val;
+}
+
 function sendLog(socket, agentId, type, message, data = null, level = 'info', sessionId = null) {
   const targetSessionId = sessionId || data?.sessionId || null;
+  const sanitizedMessage = typeof message === 'string' && message.length > 1500 
+    ? message.slice(0, 1500) + '... [truncated]' 
+    : (message || '');
+  const sanitizedData = sanitizeLogPayload(data, 1500);
+
   const event = {
     id: Date.now().toString() + Math.random().toString(36).substring(7),
     timestamp: new Date().toISOString(),
@@ -579,8 +634,8 @@ function sendLog(socket, agentId, type, message, data = null, level = 'info', se
     sessionId: targetSessionId,
     type,
     level,
-    message,
-    data
+    message: sanitizedMessage,
+    data: sanitizedData
   };
   // Broadcast to ALL connected clients so every open tab sees every event (no redundant socket.emit)
   if (typeof io !== 'undefined' && io) {
@@ -591,13 +646,13 @@ function sendLog(socket, agentId, type, message, data = null, level = 'info', se
   // Persist to rolling trace file for offline inspection
   try {
     fs.appendFileSync(traceLogPath, JSON.stringify(event) + '\n');
-    // Rotate trace file if it exceeds 50,000 lines — keep the newest 25,000
+    // Rotate trace file if it exceeds 3 MB — keep the newest 1,000 lines
     const fileSize = fs.statSync(traceLogPath).size;
-    if (fileSize > 15 * 1024 * 1024) { // ~15 MB threshold
+    if (fileSize > 3 * 1024 * 1024) {
       const content = fs.readFileSync(traceLogPath, 'utf8');
       const allLines = content.trim().split('\n').filter(Boolean);
-      if (allLines.length > 50000) {
-        const trimmed = allLines.slice(-25000).join('\n') + '\n';
+      if (allLines.length > 2000) {
+        const trimmed = allLines.slice(-1000).join('\n') + '\n';
         fs.writeFileSync(traceLogPath, trimmed);
       }
     }
@@ -610,14 +665,23 @@ function sendLog(socket, agentId, type, message, data = null, level = 'info', se
 
 function broadcastTaskActivity(agentId, action, detail, meta = {}, sessionId = null) {
   const targetSessionId = sessionId || meta?.sessionId || null;
+  const sanitizedDetail = typeof detail === 'string' && detail.length > 600
+    ? detail.slice(0, 600) + '... [truncated]'
+    : detail;
+
+  const sanitizedMeta = { ...meta };
+  if (sanitizedMeta.preview && typeof sanitizedMeta.preview === 'string' && sanitizedMeta.preview.length > 300) {
+    sanitizedMeta.preview = sanitizedMeta.preview.slice(0, 300) + '...';
+  }
+
   const event = {
     id: `act_${Date.now()}_${Math.random().toString(36).substring(7)}`,
     agentId: agentId || 'orchestrator',
     sessionId: targetSessionId,
     action,
-    detail,
+    detail: sanitizedDetail,
     timestamp: Date.now(),
-    ...meta
+    ...sanitizedMeta
   };
   if (typeof io !== 'undefined') {
     io.emit('task_activity', event);
@@ -629,10 +693,17 @@ async function sendLogHistory(socket) {
   try {
     const data = fs.readFileSync(traceLogPath, 'utf8');
     const lines = data.trim().split('\n').filter(Boolean);
-    // Send the last 2000 entries (matching frontend MAX_LOGS cap)
-    const lastLogs = lines.slice(-2000).map(line => {
+    // Send the last 200 entries (lightweight payload to avoid renderer crashes)
+    const lastLogs = lines.slice(-200).map(line => {
       try {
-        return JSON.parse(line);
+        const parsed = JSON.parse(line);
+        if (parsed.message && parsed.message.length > 1000) {
+          parsed.message = parsed.message.slice(0, 1000) + '...';
+        }
+        if (parsed.data) {
+          parsed.data = sanitizeLogPayload(parsed.data, 500);
+        }
+        return parsed;
       } catch (e) {
         return null;
       }
@@ -910,10 +981,70 @@ function detectLangCode(text) {
   return voiceMap[lang] || voiceMap.en;
 }
 
-// Call Google Cloud TTS REST API with ultra-natural American English Journey/Studio voices
-async function googleTTS(text) {
-  const voice = detectLangCode(text);
-  const speakingRate = parseFloat(process.env.GOOGLE_TTS_SPEAKING_RATE) || 1.0;
+// Clean text of markdown, code blocks, raw URLs and symbol clutter before speech synthesis
+export function cleanTextForSpeech(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .replace(/```[\s\S]*?```/g, ' [code block omitted] ') // strip multi-line code blocks
+    .replace(/`([^`]+)`/g, '$1') // inline code to text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // markdown links [text](url) -> text
+    .replace(/https?:\/\/\S+/g, '') // remove raw URLs
+    .replace(/^#+\s+/gm, '') // headings
+    .replace(/[*_~>]/g, '') // markdown bold, italic, strikethrough, quote
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Split text into natural sentence/paragraph chunks under maxChars (Google TTS limit is 5000 bytes)
+export function splitTextIntoSpeechChunks(text, maxChars = 2400) {
+  if (!text || text.length <= maxChars) return [text];
+  const chunks = [];
+  let remaining = text.trim();
+  while (remaining.length > 0) {
+    if (remaining.length <= maxChars) {
+      chunks.push(remaining.trim());
+      break;
+    }
+    const slice = remaining.substring(0, maxChars);
+    let splitIdx = -1;
+    // 1. Try paragraph break
+    const pBreak = slice.lastIndexOf('\n\n');
+    if (pBreak > maxChars * 0.4) {
+      splitIdx = pBreak + 2;
+    } else {
+      // 2. Try sentence break (. ! ?) followed by space or newline
+      const sentenceMatch = slice.match(/.*[.!?](\s+|$)/s);
+      if (sentenceMatch && sentenceMatch[0].length > maxChars * 0.3) {
+        splitIdx = sentenceMatch[0].length;
+      } else {
+        // 3. Try clause break (, ; :)
+        const clauseMatch = slice.match(/.*[,;:](\s+|$)/s);
+        if (clauseMatch && clauseMatch[0].length > maxChars * 0.4) {
+          splitIdx = clauseMatch[0].length;
+        } else {
+          // 4. Fallback to whitespace
+          const lastSpace = slice.lastIndexOf(' ');
+          splitIdx = lastSpace > maxChars * 0.3 ? lastSpace + 1 : maxChars;
+        }
+      }
+    }
+    const piece = remaining.substring(0, splitIdx).trim();
+    if (piece) chunks.push(piece);
+    remaining = remaining.substring(splitIdx).trim();
+  }
+  return chunks.filter(Boolean);
+}
+
+// Call Google Cloud TTS REST API with ultra-natural American English Journey/Studio & Italian Journey voices
+async function googleTTS(text, overrideVoice = null) {
+  const clean = cleanTextForSpeech(text);
+  if (!clean) throw new Error('No synthesizable text provided');
+
+  // Split into chunks under 2400 chars to respect Google Cloud TTS limits and synthesize long podcasts without truncation
+  const chunks = splitTextIntoSpeechChunks(clean, 2400);
+
+  const voice = overrideVoice || detectLangCode(chunks[0] || clean);
+  const speakingRate = parseFloat(process.env.GOOGLE_TTS_SPEAKING_RATE) || 1.02;
   const pitch = parseFloat(process.env.GOOGLE_TTS_PITCH) || 0.0;
   const effectsProfile = process.env.GOOGLE_TTS_EFFECTS_PROFILE || 'headphone-class-device';
   const gcpProject = process.env.GOOGLE_CLOUD_PROJECT || 'myllm-460104';
@@ -922,8 +1053,8 @@ async function googleTTS(text) {
   const { stdout } = await execPromise('gcloud auth print-access-token');
   const accessToken = stdout.trim();
 
-  const synthesize = async (voiceConfig) => {
-    return fetch(
+  const synthesizeChunk = async (chunkText, voiceConfig) => {
+    let res = await fetch(
       `https://texttospeech.googleapis.com/v1/text:synthesize`,
       {
         method: 'POST',
@@ -933,7 +1064,7 @@ async function googleTTS(text) {
           'X-Goog-User-Project': gcpProject,
         },
         body: JSON.stringify({
-          input: { text },
+          input: { text: chunkText },
           voice: voiceConfig,
           audioConfig: {
             audioEncoding: 'MP3',
@@ -944,26 +1075,88 @@ async function googleTTS(text) {
         }),
       }
     );
+
+    // Fallback to standard Neural2 voice if Journey voice is not supported in the region/account
+    if (!res.ok) {
+      const langCode = voiceConfig.languageCode || 'en-US';
+      const fallbackVoice = { languageCode: langCode, name: `${langCode}-Neural2-F` };
+      console.warn(`[Google TTS] Voice ${voiceConfig.name} returned status ${res.status}. Falling back to ${fallbackVoice.name}`);
+      res = await fetch(
+        `https://texttospeech.googleapis.com/v1/text:synthesize`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'X-Goog-User-Project': gcpProject,
+          },
+          body: JSON.stringify({
+            input: { text: chunkText },
+            voice: fallbackVoice,
+            audioConfig: {
+              audioEncoding: 'MP3',
+              speakingRate,
+              pitch,
+              effectsProfileId: [effectsProfile],
+            },
+          }),
+        }
+      );
+    }
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Google TTS API error ${res.status}: ${err}`);
+    }
+
+    const json = await res.json();
+    return Buffer.from(json.audioContent, 'base64');
   };
 
-  let res = await synthesize(voice);
-
-  // Fallback to standard Neural2 voice if Journey voice is not supported
-  if (!res.ok) {
-    const langCode = voice.languageCode || 'en-US';
-    const fallbackVoice = { languageCode: langCode, name: `${langCode}-Neural2-F` };
-    console.warn(`[Google TTS] Voice ${voice.name} returned status ${res.status}. Falling back to ${fallbackVoice.name}`);
-    res = await synthesize(fallbackVoice);
+  const audioBuffers = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const chunkBuffer = await synthesizeChunk(chunks[i], voice);
+    audioBuffers.push(chunkBuffer);
   }
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Google TTS API error ${res.status}: ${err}`);
-  }
-
-  const json = await res.json();
-  return { mp3Buffer: Buffer.from(json.audioContent, 'base64'), voice };
+  const mp3Buffer = Buffer.concat(audioBuffers);
+  return { mp3Buffer, voice, chunksCount: chunks.length };
 }
+
+// Dedicated API endpoint for Web UI speech synthesis using Google Cloud Neural/Journey voices
+app.post('/api/tts', async (req, res) => {
+  try {
+    const { text, voiceName } = req.body || {};
+    if (!text || typeof text !== 'string' || !text.trim()) {
+      return res.status(400).json({ error: 'Missing or empty text parameter' });
+    }
+    const clean = cleanTextForSpeech(text);
+    if (!clean) {
+      return res.status(400).json({ error: 'Text contains no spoken characters' });
+    }
+
+    const { mp3Buffer, voice } = await googleTTS(clean, voiceName ? { languageCode: voiceName.substring(0, 5), name: voiceName } : null);
+
+    const audioDir = path.join(process.cwd(), 'audio');
+    if (!fs.existsSync(audioDir)) {
+      await fs.promises.mkdir(audioDir, { recursive: true });
+    }
+
+    const fileId = `speech_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const filePath = path.join(audioDir, `${fileId}.mp3`);
+    await fs.promises.writeFile(filePath, mp3Buffer);
+
+    return res.json({
+      success: true,
+      audioUrl: `/audio/${fileId}.mp3`,
+      voice: voice.name,
+      lang: voice.languageCode
+    });
+  } catch (err) {
+    console.error('[API /api/tts] Error generating Google Cloud speech:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 function parseLooseArgs(argStr) {
   if (!argStr) return {};
@@ -1063,7 +1256,7 @@ function extractTextToolCalls(rawText, validToolNames = new Set()) {
         let inferredTool = '';
         if (parsed.name && (validToolNames.size === 0 || validToolNames.has(parsed.name))) {
           inferredTool = parsed.name;
-        } else if (parsed.action && ['navigate', 'open', 'click', 'type', 'press', 'snapshot', 'screenshot', 'scroll', 'hover', 'tabs', 'close_tab', 'wait', 'reset', 'init'].includes(parsed.action)) {
+        } else if (parsed.action && ['navigate', 'open', 'click', 'click_text', 'click_coords', 'select_option', 'type', 'press', 'press_keys', 'snapshot', 'screenshot', 'scroll', 'hover', 'tabs', 'close_tab', 'wait', 'reset', 'init'].includes(parsed.action)) {
           inferredTool = 'browser_control';
         } else if (parsed.action && ['query', 'insert', 'update', 'select_all', 'list_tables'].includes(parsed.action)) {
           inferredTool = 'supabase_action';
@@ -1232,7 +1425,7 @@ WORKFLOW: 1. open -> 2. snapshot (to read refs) -> 3. screenshot (to show user).
         },
         {
           name: 'web_search',
-          description: 'Search the live web for current information. USE THIS STRICTLY FOR SEARCH ONLY. Do NOT use this when browsing, navigating, or interacting with specific sites/apps is needed (for that, you MUST use ego-lite via browser_control).',
+          description: 'Search the live web for current information, facts, and discovering URLs. USE THIS STRICTLY FOR SEARCH QUERIES. NEVER use this tool when the user provides a direct URL to read, summarize, or analyze (for reading URLs, ALWAYS use web_reader which distills clean Markdown directly from your authenticated browser, or browser_control for UI interactions).',
           parameters: {
             type: 'OBJECT',
             properties: {
@@ -1467,9 +1660,34 @@ function validateCommandSafety(cmd) {
 }
 
 async function executeTool(call, socket, sessionId = 'session_default') {
-  const name = call.name;
-  const args = call.args;
+  let name = call.name;
+  let args = call.args || {};
   const _t0 = Date.now();
+
+  // Tool name normalization for LLM hallucinations, stuttering, and suffixes (e.g. browser_controlControl)
+  const knownBuiltins = new Set([
+    'run_command', 'edit_file', 'web_search', 'web_reader', 'browser_control', 'browser_action',
+    'get_project_knowledge', 'send_voice_message', 'send_telegram_notification',
+    'manage_jobs', 'manage_workflow', 'manage_projects', 'inquire_whatsapp_messages',
+    'send_whatsapp_message', 'schedule_whatsapp_message', 'inquire_hostex_availability'
+  ]);
+  if (!dynamicSkills.has(name) && !knownBuiltins.has(name)) {
+    const cleanLower = String(name || '').toLowerCase().replace(/[^a-z0-9_]/g, '');
+    if (cleanLower.startsWith('browser_control') || cleanLower.startsWith('browsercontrol')) {
+      name = 'browser_control';
+      if (!args.action) args.action = 'snapshot';
+    } else if (cleanLower.startsWith('browser_action') || cleanLower.startsWith('browseraction')) {
+      name = 'browser_action';
+    } else if (cleanLower.startsWith('web_reader') || cleanLower.startsWith('webreader')) {
+      name = 'web_reader';
+    } else if (cleanLower.startsWith('web_search') || cleanLower.startsWith('websearch')) {
+      name = 'web_search';
+    } else if (cleanLower.startsWith('run_command') || cleanLower.startsWith('runcommand')) {
+      name = 'run_command';
+    } else if (cleanLower.startsWith('edit_file') || cleanLower.startsWith('editfile')) {
+      name = 'edit_file';
+    }
+  }
 
   // Build a concise, human-readable args preview (truncate large strings)
   const _argsSummary = Object.entries(args || {}).map(([k, v]) => {
@@ -1680,7 +1898,7 @@ async function executeTool(call, socket, sessionId = 'session_default') {
     }
     if (name === 'spawn_agent') {
       const { agentId, role, task } = args;
-      sendLog(socket, 'orchestrator', 'system', `Spawning sub-agent: ${role} (${agentId})`);
+      sendLog(socket, 'orchestrator', 'system', `Spawning sub-agent: ${role} (${agentId})`, null, 'info', sessionId);
       const agentData = { id: agentId, name: role, role: 'Sub-Agent', status: 'working', currentTask: task };
       activeAgents.set(agentId, agentData);
       dbPromise.then(db => db.run('INSERT OR REPLACE INTO active_agents (agentId, name, role, status) VALUES (?, ?, ?, ?)', [agentId, agentData.name, agentData.role, agentData.status]));
@@ -1693,9 +1911,9 @@ async function executeTool(call, socket, sessionId = 'session_default') {
       const agentType = role.toLowerCase();
       if (availableAgents.has(agentType)) {
         systemPromptPath = availableAgents.get(agentType).systemPromptPath;
-        sendLog(socket, 'orchestrator', 'system', `Using specialized system prompt for ${agentType}`);
+        sendLog(socket, 'orchestrator', 'system', `Using specialized system prompt for ${agentType}`, null, 'info', sessionId);
       } else {
-        sendLog(socket, 'orchestrator', 'system', `No specialized agent for "${role}" found. Using default orchestrator prompt.`);
+        sendLog(socket, 'orchestrator', 'system', `No specialized agent for "${role}" found. Using default orchestrator prompt.`, null, 'info', sessionId);
       }
 
       let subAgent = agentInstances.get(agentId);
@@ -1986,24 +2204,57 @@ async function executeTool(call, socket, sessionId = 'session_default') {
     if (name === 'browser_action') {
       const browserControl = dynamicSkills.get('browser_control');
       if (browserControl) {
-        let cmd = args.command || '';
+        let cmd = (args.command || '').trim();
         if (cmd.startsWith('open ')) {
           const url = cmd.replace(/^open\s+["']?/, '').replace(/["']?$/, '');
-          return await browserControl.execute({ action: 'navigate', url });
+          return await browserControl.execute({ action: 'navigate', url, sessionId });
         } else if (cmd.includes('snapshot')) {
-          return await browserControl.execute({ action: 'snapshot' });
+          return await browserControl.execute({ action: 'snapshot', sessionId });
         } else if (cmd.includes('screenshot')) {
-          return await browserControl.execute({ action: 'screenshot', annotate: true });
+          return await browserControl.execute({ action: 'screenshot', annotate: true, sessionId });
+        } else if (cmd.startsWith('click text ') || cmd.startsWith('click_text ')) {
+          const text = cmd.replace(/^click[_ ]text\s+["']?/, '').replace(/["']?$/, '');
+          return await browserControl.execute({ action: 'click_text', text, sessionId });
         } else if (cmd.startsWith('click ')) {
           const selector = cmd.replace(/^click\s+["']?/, '').replace(/["']?$/, '');
-          return await browserControl.execute({ action: 'click', selector });
+          return await browserControl.execute({ action: 'click', selector, sessionId });
         } else if (cmd.startsWith('fill ')) {
           const parts = cmd.split(' ');
           const selector = parts[1]?.replace(/["']/g, '');
           const text = parts.slice(2).join(' ').replace(/["']/g, '');
-          return await browserControl.execute({ action: 'type', selector, text });
+          return await browserControl.execute({ action: 'type', selector, text, sessionId });
+        } else if (cmd.startsWith('press ')) {
+          const key = cmd.replace(/^press\s+["']?/, '').replace(/["']?$/, '');
+          return await browserControl.execute({ action: 'press', selector: key, sessionId });
+        } else if (cmd.startsWith('get text ') || cmd === 'get text') {
+          const selector = cmd.replace(/^get text\s*/, '').replace(/^["']/, '').replace(/["']$/, '').trim();
+          return await browserControl.execute({ action: 'get_text', selector, sessionId });
+        } else if (cmd.startsWith('get html ') || cmd === 'get html') {
+          const selector = cmd.replace(/^get html\s*/, '').replace(/^["']/, '').replace(/["']$/, '').trim();
+          return await browserControl.execute({ action: 'get_text', selector, sessionId });
+        } else if (cmd.includes('get url')) {
+          const { EgoAdapter } = await import('./skills/utils/ego_adapter.js');
+          const spaceName = EgoAdapter.getSpaceName(sessionId);
+          const urlRes = await EgoAdapter.runScript(`
+            ${EgoAdapter.getTaskSpaceHeader(spaceName)}
+            const u = await js(String.raw\`(() => window.location.href)()\`);
+            cliLog(u);
+          `);
+          return { output: urlRes };
+        } else if (cmd.includes('get title')) {
+          const { EgoAdapter } = await import('./skills/utils/ego_adapter.js');
+          const spaceName = EgoAdapter.getSpaceName(sessionId);
+          const titleRes = await EgoAdapter.runScript(`
+            ${EgoAdapter.getTaskSpaceHeader(spaceName)}
+            const t = await js(String.raw\`(() => document.title)()\`);
+            cliLog(t);
+          `);
+          return { output: titleRes };
+        } else if (cmd.startsWith('scroll ')) {
+          const dir = cmd.includes('up') ? 'up' : 'down';
+          return await browserControl.execute({ action: 'scroll', text: dir, sessionId });
         }
-        return await browserControl.execute({ action: 'snapshot' });
+        return await browserControl.execute({ action: 'snapshot', sessionId });
       }
       return { output: 'Browser control executed.' };
     }
@@ -2019,13 +2270,26 @@ async function executeTool(call, socket, sessionId = 'session_default') {
 
       try {
         // Generate speech with Google Cloud TTS
-        const { mp3Buffer, voice } = await googleTTS(cleanText);
-        sendLog(socket, 'system', 'tool_output', `🔊 Google TTS: ${voice.name} (${voice.languageCode})`, null, 'info');
+        const { mp3Buffer, voice, chunksCount } = await googleTTS(cleanText);
+        sendLog(socket, 'system', 'tool_output', `🔊 Google TTS: ${voice.name} (${voice.languageCode})`, null, 'info', sessionId);
 
         // Write MP3 directly (no ffmpeg needed — Google returns MP3)
         fs.writeFileSync(mp3Path, mp3Buffer);
         const audioUrl = `/audio/${fileId}.mp3`;
-        io.emit('voice_message', { url: audioUrl, text });
+        io.emit('voice_message', { url: audioUrl, text, sessionId });
+
+        // Calculate accurate duration in seconds using afinfo (macOS) or word count estimate
+        let durationSeconds = 0;
+        try {
+          const { stdout: afOut } = await execPromise(`afinfo "${mp3Path}" | grep "estimated duration"`);
+          const match = afOut.match(/estimated duration:\s*([\d.]+)/);
+          if (match) durationSeconds = Math.round(parseFloat(match[1]));
+        } catch (_) {
+          const words = cleanText.split(/\s+/).filter(Boolean).length;
+          durationSeconds = Math.round((words / 150) * 60);
+        }
+        const durationFormatted = `${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s`;
+        const wordCount = cleanText.split(/\s+/).filter(Boolean).length;
 
         // Telegram: convert to ogg opus
         if (lastTelegramChatId && tgBot) {
@@ -2039,7 +2303,16 @@ async function executeTool(call, socket, sessionId = 'session_default') {
           }
         }
 
-        return { status: 'Voice message sent.', audioUrl };
+        return {
+          status: 'Voice message sent successfully.',
+          audioUrl,
+          durationSeconds,
+          durationFormatted,
+          wordCount,
+          characterCount: cleanText.length,
+          chunksSynthesized: chunksCount || 1,
+          playerMarkdown: `[Voice Podcast (${durationFormatted})](${audioUrl})`
+        };
       } catch (e) {
         return { error: `Voice generation failed: ${e.message}` };
       }
@@ -2292,10 +2565,10 @@ async function executeTool(call, socket, sessionId = 'session_default') {
       };
     }
   } catch (error) {
-    sendLog(socket, 'system', 'tool_error', `✗ ${name} failed (${Date.now() - _t0}ms) — ${error.message}`, { error: error.message }, 'error');
+    sendLog(socket, 'system', 'tool_error', `✗ ${name} failed (${Date.now() - _t0}ms) — ${error.message}`, { error: error.message }, 'error', sessionId);
     return { error: error.message };
   }
-  sendLog(socket, 'system', 'tool_end', `? ${name} — unknown tool`, { tool: name }, 'warning');
+  sendLog(socket, 'system', 'tool_end', `? ${name} — unknown tool`, { tool: name }, 'warning', sessionId);
   return { error: 'Unknown tool' };
 }
 
@@ -2322,13 +2595,25 @@ class Agent {
     agentInstances.set(this.id, this);
   }
 
-  stop() {
-    this.shouldStop = true;
-    if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = null;
+  stop(targetSessionId = null) {
+    if (targetSessionId) {
+      const run = activeSessionRuns.get(targetSessionId);
+      if (run) {
+        run.abortController?.abort();
+      }
+    } else {
+      this.shouldStop = true;
+      if (this.abortController) {
+        this.abortController.abort();
+        this.abortController = null;
+      }
+      for (const [sId, run] of activeSessionRuns.entries()) {
+        if (run.agentId === this.id) {
+          run.abortController?.abort();
+        }
+      }
     }
-    console.log(`Stopping agent ${this.id}`);
+    console.log(`Stopping agent ${this.id}${targetSessionId ? ' for session ' + targetSessionId : ''}`);
   }
 
   async loadHistory() {
@@ -2361,6 +2646,7 @@ class Agent {
   }
 
   async processMessage(userMessage, socket, provider = process.env.DEFAULT_LLM_PROVIDER || 'ollama_cloud', images = [], sessionId = 'session_default') {
+    const executionStartTime = Date.now();
     if (activeSessionRuns.has(sessionId)) {
       sendLog(socket, this.id, 'warning', `Session is already processing a task. Please wait.`, null, 'warning', sessionId);
       return;
@@ -2383,6 +2669,10 @@ class Agent {
     });
 
     this.processing = true;
+    try {
+      const { EgoAdapter } = await import('./skills/utils/ego_adapter.js');
+      EgoAdapter.setSessionContext(sessionId);
+    } catch (e) {}
     if (activeAgents.has(this.id)) {
       activeAgents.get(this.id).status = 'working';
     }
@@ -2639,11 +2929,17 @@ ${agentsList}
 ## CAPABILITIES & TOOLS:
 ${toolsList}
 
-## CRITICAL RULES FOR ASSETS:
+## CRITICAL RULES FOR ASSETS & MEDIA:
 1. All screenshots and generated images ARE SAVED LOCALLY in "/screenshots/".
 2. ALWAYS use the exact relative path returned by tools (e.g. "/screenshots/generated_123.png").
 3. DO NOT prepend Supabase URLs (e.g. "https://...supabase.co/...") to local paths. 
 4. Markdown tables MUST follow standard GFM format: Header, Newline, Separator (|---|), Newline, Rows.
+5. VOICE & PODCAST GENERATION:
+   - When asked to produce a podcast, audio summary, or spoken briefing, you MUST execute 'send_voice_message' with the complete spoken-word text. Do NOT stop after writing notes, bash scripts, or summaries.
+   - Inspect the returned tool telemetry ('durationSeconds', 'wordCount', 'durationFormatted'). If the user requested an extended duration (e.g. 10-15 minutes or 2,000 words), verify that 'durationSeconds' and 'wordCount' match expectations.
+   - Always provide the audio link '[Play Podcast (duration)](/audio/...)' in your final response so the user can listen directly.
+6. CONVERSATIONAL CONTINUITY & DISAMBIGUATION:
+   - If the user provides follow-up requests like "put it here on chat", "where is the audio?", or "send it", interpret the prompt in light of recent session artifacts and files. DO NOT divert into external communication tools like WhatsApp unless the user explicitly requests WhatsApp actions.
 
 # Current Task
 ${taskContent}
@@ -2651,34 +2947,52 @@ ${taskContent}
 
       // Dynamic context and real-time history shrinker for context efficiency & token guardrails.
       // Automatically caps heavy tool outputs (preventing 400k+ token dumps), truncates older turns,
-      // and compacts history when sessions grow long.
+      // and compacts history when sessions grow long while ensuring the active task prompt is NEVER lost.
       const shrinkHistoryForContext = (history, dynamicContext) => {
         if (!history || history.length === 0) return history;
         const recentCount = 2; // Treat only the last 2 turns as immediate active context
         
-        // Sliding window: if history exceeds 20 turns, keep first turn (mission/system context) + last 14 turns
         let processedHistory = history;
-        if (history.length > 20) {
-          const firstTurn = history[0];
-          const secondTurn = history[1];
-          const recentSlice = history.slice(-14);
-          const omittedCount = history.length - 2 - 14;
-          processedHistory = [
-            firstTurn,
-            secondTurn,
-            {
-              role: 'user',
-              parts: [{ text: `[System Notice: ${omittedCount} earlier messages archived to maintain lean context and low latency]` }]
-            },
-            ...recentSlice
-          ];
+        if (history.length > 16) {
+          // 1. Identify the active user prompt that initiated the current task execution
+          let activeUserIdx = -1;
+          for (let i = history.length - 1; i >= 0; i--) {
+            const h = history[i];
+            if (h.role === 'user' && h.parts && !h.parts.some(p => p.functionResponse)) {
+              activeUserIdx = i;
+              break;
+            }
+          }
+
+          if (activeUserIdx !== -1) {
+            // Include up to 4 recent conversation messages before this active task for dialogue continuity
+            const priorDialog = history
+              .slice(0, activeUserIdx)
+              .filter(h => !h.parts?.some(p => p.functionResponse))
+              .slice(-4);
+            
+            // The active user prompt must ALWAYS be included as the active task anchor
+            const activeUserTurn = history[activeUserIdx];
+            
+            // Tool execution steps for the current task: keep up to the last 10 tool turns
+            const executionSteps = history.slice(activeUserIdx + 1).slice(-10);
+
+            processedHistory = [
+              ...priorDialog,
+              activeUserTurn,
+              ...executionSteps
+            ];
+          } else {
+            // Fallback: sliding window of the last 14 entries
+            processedHistory = history.slice(-14);
+          }
         }
 
         const total = processedHistory.length;
+        let dynamicInjected = false;
 
         return processedHistory.map((h, idx) => {
           const isRecent = idx >= total - recentCount;
-          const isFirst = idx === 0;
 
           let parts = (h.parts || []).map(p => {
             if (p.functionResponse) {
@@ -2737,8 +3051,10 @@ ${taskContent}
             return p;
           });
 
-          if (isFirst && h.role === 'user' && dynamicContext) {
+          // Inject dynamic context into the first user turn in the window
+          if (!dynamicInjected && h.role === 'user' && dynamicContext) {
             parts = [{ text: dynamicContext + '\n\n---\n\n' }, ...parts];
+            dynamicInjected = true;
           }
 
           return { ...h, parts };
@@ -2746,7 +3062,9 @@ ${taskContent}
       };
 
       this.shouldStop = false;
+      let sessionShouldStop = false;
       const collectedImages = [];
+      let collectedAudioUrl = null;
       const accumulatedUsage = {
         promptTokens: 0,
         candidatesTokens: 0,
@@ -2791,8 +3109,8 @@ ${taskContent}
       let consecutiveTextOnlyTurns = 0; // FIX: track reassurance-loop depth
       let hasEmittedFinalMessage = false;
       const executedActions = [];
-      const MAX_TURNS = parseInt(process.env.AGENT_MAX_TURNS || '100', 10);
-      while (turnCount < MAX_TURNS && !this.shouldStop && !sessionAbort.signal.aborted) {
+      const MAX_TURNS = parseInt(process.env.AGENT_MAX_TURNS || '35', 10);
+      while (turnCount < MAX_TURNS && !sessionShouldStop && !this.shouldStop && !sessionAbort.signal.aborted) {
         turnCount++;
         const providerNameMap = {
           'auto': 'Smart Hybrid Auto-Router',
@@ -2809,7 +3127,9 @@ ${taskContent}
           (provider.startsWith('ollama_cloud:') ? `Ollama Cloud (${provider.substring(13)})` :
           (provider.startsWith('ollama:') ? `Local Ollama (${provider.substring(7)})` : 
           (provider.startsWith('do:') ? `DigitalOcean (${provider.substring(3)})` :
-          (provider.startsWith('ollama') ? 'Local Ollama' : provider))));
+          (provider.startsWith('vertex:') ? `Google Vertex AI (${provider.substring(7)})` :
+          (provider.startsWith('gemini:') ? `Google Gemini (${provider.substring(7)})` :
+          (provider.startsWith('ollama') ? 'Local Ollama' : provider))))));
         if (socket) sendLog(socket, this.id, 'api_request', `Generating content (turn ${turnCount}) using ${displayName}`, null, 'info', sessionId);
         
         if (typeof io !== 'undefined') {
@@ -2825,10 +3145,11 @@ ${taskContent}
         
         const __llmStartTime = Date.now();
         let response;
-        if (provider === 'gemini' || provider === 'gemini_api' || provider.startsWith('gemini:') || provider.startsWith('gemini_api:')) {
-          const requestedGeminiModel = provider.startsWith('gemini:')
-            ? provider.substring(7)
-            : (provider.startsWith('gemini_api:') ? provider.substring(11) : 'gemini-3.7-flash');
+        if (provider === 'gemini' || provider === 'gemini_api' || provider.startsWith('gemini:') || provider.startsWith('gemini_api:') || provider.startsWith('vertex:') || provider === 'vertex') {
+          let requestedGeminiModel = (provider.startsWith('gemini:') || provider.startsWith('vertex:'))
+            ? provider.substring(provider.indexOf(':') + 1)
+            : (provider.startsWith('gemini_api:') ? provider.substring(11) : 'gemini-3.8-flash');
+          if (requestedGeminiModel === 'gemini-3.8') requestedGeminiModel = 'gemini-3.8-flash';
 
           if (hasGeminiKey()) {
             // Google AI Studio execution via GEMINI_API_KEY
@@ -2849,9 +3170,10 @@ ${taskContent}
               usage: gemResult.usage
             };
           } else {
-            // Vertex AI fallback
+            // Vertex AI execution
+            const vertexModelName = requestedGeminiModel || 'gemini-3.8-flash';
             const model = vertexAI.preview.getGenerativeModel({
-              model: 'gemini-2.5-flash', 
+              model: vertexModelName, 
               tools: [{ functionDeclarations: getToolDeclarations()[0].functionDeclarations }]
             });
 
@@ -3268,14 +3590,14 @@ ${taskContent}
             sendLog(socket, this.id, 'api_request', `Ollama Cloud Request: ${ollamaModel} (${ollamaMessages.length} messages)`, null, 'info', sessionId);
           }
           
-          if (sessionAbort.signal.aborted || this.shouldStop) {
+          if (sessionAbort.signal.aborted || sessionShouldStop || this.shouldStop) {
             throw new Error('Ollama Cloud request cancelled or timed out');
           }
 
-          this.abortController = new AbortController();
-          const abortListener = () => this.abortController?.abort();
+          const fetchAbort = new AbortController();
+          const abortListener = () => fetchAbort.abort();
           sessionAbort.signal.addEventListener('abort', abortListener, { once: true });
-          const timeoutId = setTimeout(() => this.abortController?.abort(), 300000);
+          const timeoutId = setTimeout(() => fetchAbort.abort(), 300000);
           const activityInterval = setInterval(() => {
             this.lastActivity = Date.now();
           }, 10000);
@@ -3292,7 +3614,7 @@ ${taskContent}
                 stream: false,
                 options: { num_ctx: 131072 } // Maximize context window
               }),
-              signal: this.abortController.signal
+              signal: fetchAbort.signal
             }, {
               logTag: `Agent ${this.id} (Ollama Cloud)`,
               onFailover: (info) => {
@@ -3303,7 +3625,7 @@ ${taskContent}
               }
             });
           } catch (err) {
-            if (this.shouldStop || err.name === 'AbortError' || sessionAbort.signal.aborted) {
+            if (sessionShouldStop || this.shouldStop || err.name === 'AbortError' || sessionAbort.signal.aborted) {
               throw new Error('Ollama Cloud request cancelled or timed out');
             }
             throw err;
@@ -3314,15 +3636,13 @@ ${taskContent}
           }
           
           const result = await res.json();
-          const content = result.message?.content || '';
-          const thinking = result.message?.thinking || '';
-          let resolvedText = content.trim() !== '' ? content : (thinking.trim() !== '' ? thinking : '');
-
+          let resolvedText = result.message?.content || '';
           let functionCalls = result.message?.tool_calls?.map(tc => ({
             name: tc.function.name,
-            args: typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments
+            args: tc.function.arguments
           })) || [];
 
+          // Regex fallback if model produced markdown code block tool calls instead of tool_calls payload
           if (functionCalls.length === 0 && resolvedText.trim() !== '') {
             const validToolNames = new Set(getToolDeclarations()[0].functionDeclarations.map(fd => fd.name));
             const extracted = extractTextToolCalls(resolvedText, validToolNames);
@@ -3330,7 +3650,7 @@ ${taskContent}
               functionCalls = extracted.toolCalls;
               resolvedText = extracted.cleanText;
               console.log(`[Ollama Cloud Text Tool Calls Extracted] Found ${functionCalls.length} tool(s):`, functionCalls.map(f => f.name));
-              if (socket) sendLog(socket, this.id, 'system', `⚡ Extracted tool call: ${functionCalls.map(f => f.name).join(', ')}`);
+              if (socket) sendLog(socket, this.id, 'system', `⚡ Extracted tool call: ${functionCalls.map(f => f.name).join(', ')}`, null, 'info', sessionId);
             }
           }
 
@@ -3467,14 +3787,14 @@ ${taskContent}
             sendLog(socket, this.id, 'api_request', `Ollama Request: ${ollamaModel} (${ollamaMessages.length} messages)`, null, 'info', sessionId);
           }
           
-          if (sessionAbort.signal.aborted || this.shouldStop) {
+          if (sessionAbort.signal.aborted || sessionShouldStop || this.shouldStop) {
             throw new Error('Ollama request cancelled or timed out');
           }
 
-          this.abortController = new AbortController();
-          const abortListener = () => this.abortController?.abort();
+          const localOllamaAbort = new AbortController();
+          const abortListener = () => localOllamaAbort.abort();
           sessionAbort.signal.addEventListener('abort', abortListener, { once: true });
-          const timeoutId = setTimeout(() => this.abortController?.abort(), 300000); // 300s timeout (allows model load + long generation)
+          const timeoutId = setTimeout(() => localOllamaAbort.abort(), 300000); // 300s timeout (allows model load + long generation)
           const activityInterval = setInterval(() => {
             this.lastActivity = Date.now();
           }, 10000);
@@ -3490,10 +3810,10 @@ ${taskContent}
                 tools: ollamaTools,
                 stream: false
               }),
-              signal: this.abortController.signal
+              signal: localOllamaAbort.signal
             });
           } catch (err) {
-            if (this.shouldStop || err.name === 'AbortError' || sessionAbort.signal.aborted) {
+            if (sessionShouldStop || this.shouldStop || err.name === 'AbortError' || sessionAbort.signal.aborted) {
               throw new Error('Ollama request cancelled or timed out');
             }
             if (err.cause?.code === 'ECONNREFUSED' || err.message?.includes('fetch failed')) {
@@ -3512,15 +3832,13 @@ ${taskContent}
           }
           
           const result = await res.json();
-          const content = result.message?.content || '';
-          const thinking = result.message?.thinking || '';
-          let resolvedText = content.trim() !== '' ? content : (thinking.trim() !== '' ? thinking : '');
-
+          let resolvedText = result.message?.content || '';
           let functionCalls = result.message?.tool_calls?.map(tc => ({
             name: tc.function.name,
-            args: typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments
+            args: tc.function.arguments
           })) || [];
 
+          // Regex fallback if local Ollama emitted text tool calls
           if (functionCalls.length === 0 && resolvedText.trim() !== '') {
             const validToolNames = new Set(getToolDeclarations()[0].functionDeclarations.map(fd => fd.name));
             const extracted = extractTextToolCalls(resolvedText, validToolNames);
@@ -3528,7 +3846,7 @@ ${taskContent}
               functionCalls = extracted.toolCalls;
               resolvedText = extracted.cleanText;
               console.log(`[Ollama Text Tool Calls Extracted] Found ${functionCalls.length} tool(s):`, functionCalls.map(f => f.name));
-              if (socket) sendLog(socket, this.id, 'system', `⚡ Extracted tool call: ${functionCalls.map(f => f.name).join(', ')}`);
+              if (socket) sendLog(socket, this.id, 'system', `⚡ Extracted tool call: ${functionCalls.map(f => f.name).join(', ')}`, null, 'info', sessionId);
             }
           }
 
@@ -3565,7 +3883,7 @@ ${taskContent}
           hasFunctionCalls: !!response.functionCalls && response.functionCalls.length > 0, 
           hasText: !!response.text,
           usage: response.usage
-        });
+        }, 'info', sessionId);
 
         // Update task activity with intermediate reasoning if present
         if (response.text && response.text.trim() !== '' && response.functionCalls) {
@@ -3626,7 +3944,7 @@ ${taskContent}
             }, 5000);
 
             try {
-              if (sessionAbort.signal.aborted || this.shouldStop) {
+              if (sessionAbort.signal.aborted || sessionShouldStop || this.shouldStop) {
                 throw new Error('Task was stopped by user');
               }
 
@@ -3641,7 +3959,7 @@ ${taskContent}
             } catch (err) {
               result = { error: err.message || 'Tool execution encountered an error' };
               if (err.message === 'Task stopped by user') {
-                this.shouldStop = true;
+                sessionShouldStop = true;
               }
             } finally {
               clearInterval(healthInterval);
@@ -3659,6 +3977,7 @@ ${taskContent}
 
             executedActions.push({
               toolName: call.name,
+              args: call.args,
               durationMs: _pmDuration,
               status: result.error ? 'error' : 'success',
               preview: _resultPreview,
@@ -3679,6 +3998,9 @@ ${taskContent}
             if (result.imageUrl) {
               collectedImages.push(result.imageUrl);
             }
+            if (result.audioUrl) {
+              collectedAudioUrl = result.audioUrl;
+            }
 
             functionResponses.push({
               functionResponse: {
@@ -3691,7 +4013,44 @@ ${taskContent}
           if (turnCount >= MAX_TURNS - 3 && functionResponses.length > 0) {
             const lastResp = functionResponses[functionResponses.length - 1].functionResponse;
             if (lastResp && typeof lastResp.response === 'object' && lastResp.response !== null) {
-              lastResp.response._system_budget_notice = `[Turn budget notice]: You are on turn ${turnCount} of ${MAX_TURNS}. Please finalize any pending actions and provide a complete, detailed final answer to the user now.`;
+              lastResp.response._system_budget_notice = `[CRITICAL Turn budget notice]: You are on turn ${turnCount} of ${MAX_TURNS}. Please finalize any pending actions and provide a complete, detailed final answer to the user now.`;
+            }
+          } else if (functionResponses.length > 0) {
+            const lastResp = functionResponses[functionResponses.length - 1].functionResponse;
+            if (lastResp && typeof lastResp.response === 'object' && lastResp.response !== null) {
+              // 1. Browser loop detector (repeated scroll/distill/click)
+              const recentBrowserActions = executedActions.slice(-8).filter(a => a.toolName.includes('browser') || a.toolName === 'web_reader');
+              if (recentBrowserActions.length >= 6) {
+                lastResp.response._loop_convergence_notice = `[Heuristic Notice]: You have performed multiple consecutive browser inspection actions (${executedActions.length} total actions). If you have gathered the key facts, show titles, codes, or answers requested, please STOP browsing and deliver your final comprehensive answer to the user now.`;
+              }
+
+              // 2. Inspection & read command loop detector (cat, ls, find, grep, etc.)
+              const recentActions = executedActions.slice(-8);
+              const isInspectionAction = (a) => {
+                if (a.toolName === 'run_command' && a.args?.command) {
+                  const cmd = a.args.command.trim().toLowerCase();
+                  return /^(cat|ls|find|grep|head|tail|file|stat|diff)\b/.test(cmd) || /\|\s*(cat|grep|head|tail)\b/.test(cmd);
+                }
+                return a.toolName === 'get_project_knowledge';
+              };
+              const recentInspections = recentActions.filter(isInspectionAction);
+              if (recentInspections.length >= 5) {
+                lastResp.response._inspection_loop_notice = `[Heuristic Notice]: You have performed ${recentInspections.length} consecutive file/system inspection commands (${executedActions.length} total actions). If you have gathered the required reference files or verified the project build, STOP inspecting and deliver your final comprehensive answer to the user now.`;
+              }
+
+              // 3. Project Scaffolding completion guard (prevents redundant secondary project builds or inspection spirals)
+              const hasCompletedBuild = executedActions.some(a => 
+                (a.toolName === 'antigravity_cli' && a.args?.action === 'create_project' && a.status === 'success') ||
+                (a.toolName === 'run_command' && typeof a.preview === 'string' && (a.preview.includes('vite v') || a.preview.includes('built in') || a.preview.includes('interactive longform article project has been set up')))
+              );
+              if (hasCompletedBuild && executedActions.length >= 6 && !lastResp.response._project_scaffold_done) {
+                lastResp.response._project_scaffold_done = `[Project Scaffolding Complete]: The project has already been scaffolded and verified. Do NOT create duplicate projects or continue secondary file comparisons. Deliver your final response with project path and preview instructions (e.g. npm run dev) now.`;
+              }
+
+              // 4. Mid-way budget pacing warning (turn 15, 20, 25...)
+              if (turnCount >= 15 && turnCount % 5 === 0) {
+                lastResp.response._turn_budget_warning = `[Turn Budget Notice]: You are on turn ${turnCount} of ${MAX_TURNS} with ${executedActions.length} actions executed. Please synthesize your findings and deliver your complete response to the user.`;
+              }
             }
           }
 
@@ -3754,6 +4113,7 @@ ${taskContent}
             role: 'assistant',
             content: cleanFinalContent,
             images: collectedImages, 
+            audioUrl: collectedAudioUrl || undefined,
             steps: executedActions,
             model: response.model || (provider === 'gemini' ? 'gemini-2.5-flash' : provider),
             usage: {
@@ -3785,7 +4145,7 @@ ${taskContent}
       if (!hasEmittedFinalMessage && !sessionAbort.signal.aborted) {
         const currentSession = sessionId || socket?.currentSessionId || activeSessionId || 'session_default';
         let fallbackText = '';
-        if (this.shouldStop) {
+        if (sessionShouldStop || this.shouldStop) {
           fallbackText = `⏹️ **Task stopped by user** after ${turnCount} turns. Executed ${executedActions.length} action(s).`;
         } else if (turnCount >= MAX_TURNS) {
           const uniqueTools = [...new Set(executedActions.map(a => a.toolName))].join(', ');
@@ -3807,6 +4167,7 @@ ${taskContent}
             role: 'assistant',
             content: fallbackText,
             images: collectedImages,
+            audioUrl: collectedAudioUrl || undefined,
             steps: executedActions,
             model: provider === 'gemini' ? 'gemini-2.5-flash' : provider,
             usage: {
@@ -3852,6 +4213,7 @@ ${taskContent}
           role: 'assistant',
           content: errorContent,
           images: collectedImages,
+          audioUrl: collectedAudioUrl || undefined,
           steps: executedActions,
           model: provider === 'gemini' ? 'gemini-2.5-flash' : provider,
           isError: true,
@@ -3889,6 +4251,24 @@ ${taskContent}
         }
       }
 
+      // Record structured audit performance telemetry
+      try {
+        PerformanceAuditLogger.recordRun({
+          sessionId,
+          agentId: this.id,
+          model: provider === 'gemini' ? 'gemini-2.5-flash' : provider,
+          durationMs: Date.now() - (executionStartTime || Date.now()),
+          turnsCount: turnCount || 1,
+          toolsExecuted: executedActions.length,
+          toolsFailed: executedActions.filter(a => a.status === 'error').length,
+          inputTokens: accumulatedUsage?.promptTokens || 0,
+          outputTokens: accumulatedUsage?.candidatesTokens || 0,
+          status: (sessionShouldStop || this.shouldStop || sessionAbort.signal.aborted) ? 'stopped' : 'completed'
+        });
+      } catch (auditErr) {
+        console.warn('[AuditLogger] Failed to record run telemetry:', auditErr.message);
+      }
+
       // Schedule idle grace period cleanup for browser sessions (Ego-Lite and Stealth Playwright)
       try {
         EgoAdapter.scheduleTaskCompletionGrace(60000);
@@ -3905,20 +4285,43 @@ agentInstances.set('orchestrator', orchestrator);
 
 const scheduledCronTasks = new Map();
 const runningJobIds = new Set();
+const runningJobSessions = new Map(); // jobId -> sessionId
 
 function scheduleCronJob(jobId, cronExpr, task, jobName, agentId = 'orchestrator') {
   const taskObj = cron.schedule(cronExpr, async () => {
     console.log(`[Job ${jobId}] Running: ${jobName || 'Unnamed'} (Agent: ${agentId})`);
+    const sessionId = `session_cron_${jobId}_${Date.now()}`;
     runningJobIds.add(Number(jobId));
+    runningJobSessions.set(Number(jobId), sessionId);
     getTrackerOverview().then(overview => io.emit('tracker_update', overview));
 
     try {
       const db = await dbPromise;
       await db.run('UPDATE scheduled_jobs SET lastRun = ? WHERE id = ?', [new Date().toISOString(), jobId]);
-      
+
+      // Create dedicated chat session for this cron execution
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const sessionTitle = `⏰ ${jobName || 'Scheduled Job'} (${timeStr})`;
+      await getOrCreateSession(sessionId, 'cron', agentId, sessionTitle);
+
+      // Record initial task prompt in session
+      await recordMessageInSession(sessionId, {
+        id: `msg_${Date.now()}_cron_prompt`,
+        role: 'user',
+        agentId: 'user',
+        content: `[⏰ SCHEDULED RUN: ${jobName || 'Job #' + jobId}]\n\n**Agent Assigned:** \`${agentId}\`\n**Task:**\n${task}`
+      });
+
+      getAllSessions().then(s => io.emit('sessions_list', s));
+
       const mockSocket = {
+        isMockSocket: true,
+        currentSessionId: sessionId,
         emit: async (event, data) => {
-          io.emit(event, data);
+          const payload = (typeof data === 'object' && data !== null)
+            ? { sessionId, ...data }
+            : data;
+          io.emit(event, payload);
           if (event === 'agent_message' && !data.isTool) {
             if (lastTelegramChatId && tgBot) {
               const header = `🤖 *[${jobName || 'Scheduled Job'}]* (${agentId})\n\n`;
@@ -3931,8 +4334,8 @@ function scheduleCronJob(jobId, cronExpr, task, jobName, agentId = 'orchestrator
           }
         }
       };
-      
-      sendLog(mockSocket, agentId, 'job_start', `Running scheduled job: ${jobName || jobId}`);
+
+      sendLog(mockSocket, agentId, 'job_start', `Running scheduled job: ${jobName || jobId}`, { sessionId }, 'info', sessionId);
       let targetAgent = agentInstances.get(agentId);
       if (!targetAgent) {
         const systemPath = path.join(process.cwd(), 'agents', agentId, 'system.md');
@@ -3943,11 +4346,13 @@ function scheduleCronJob(jobId, cronExpr, task, jobName, agentId = 'orchestrator
           targetAgent = orchestrator;
         }
       }
-      await targetAgent.processMessage(`[SCHEDULED JOB] ${task}`, mockSocket);
+      await targetAgent.processMessage(`[SCHEDULED JOB: ${jobName || jobId}] ${task}`, mockSocket, process.env.DEFAULT_LLM_PROVIDER || 'ollama_cloud', [], sessionId);
     } catch (err) {
       console.error(`Error running scheduled cron job ${jobId}:`, err);
     } finally {
       runningJobIds.delete(Number(jobId));
+      runningJobSessions.delete(Number(jobId));
+      getAllSessions().then(s => io.emit('sessions_list', s));
       getTrackerOverview().then(overview => io.emit('tracker_update', overview));
     }
   });
@@ -3970,10 +4375,36 @@ async function runJobNow(jobId) {
   if (!job) throw new Error('Job not found');
 
   await db.run('UPDATE scheduled_jobs SET lastRun = ? WHERE id = ?', [new Date().toISOString(), jobId]);
-  
+
+  const agentId = job.agentId || 'orchestrator';
+  const sessionId = `session_cron_${jobId}_${Date.now()}`;
+  runningJobIds.add(Number(jobId));
+  runningJobSessions.set(Number(jobId), sessionId);
+
+  // Create dedicated chat session for this execution
+  const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const sessionTitle = `⏰ ${job.name || 'Job #' + jobId} (${timeStr})`;
+  await getOrCreateSession(sessionId, 'cron', agentId, sessionTitle);
+
+  // Record initial task prompt in session
+  await recordMessageInSession(sessionId, {
+    id: `msg_${Date.now()}_cron_prompt`,
+    role: 'user',
+    agentId: 'user',
+    content: `[⏰ MANUAL RUN: ${job.name || 'Job #' + jobId}]\n\n**Agent Assigned:** \`${agentId}\`\n**Task:**\n${job.task}`
+  });
+
+  getAllSessions().then(s => io.emit('sessions_list', s));
+  getTrackerOverview().then(overview => io.emit('tracker_update', overview));
+
   const mockSocket = {
+    isMockSocket: true,
+    currentSessionId: sessionId,
     emit: async (event, data) => {
-      io.emit(event, data);
+      const payload = (typeof data === 'object' && data !== null)
+        ? { sessionId, ...data }
+        : data;
+      io.emit(event, payload);
       if (event === 'agent_message' && !data.isTool) {
         if (lastTelegramChatId && tgBot) {
           const header = `🤖 *[Manual Run: ${job.name || 'Job'}]* (${job.agentId || 'orchestrator'})\n\n`;
@@ -3987,8 +4418,7 @@ async function runJobNow(jobId) {
     }
   };
 
-  const agentId = job.agentId || 'orchestrator';
-  sendLog(mockSocket, agentId, 'job_start', `Manually triggered job: ${job.name || jobId}`);
+  sendLog(mockSocket, agentId, 'job_start', `Manually triggered job: ${job.name || jobId}`, { sessionId }, 'info', sessionId);
   let targetAgent = agentInstances.get(agentId);
   if (!targetAgent) {
     const systemPath = path.join(process.cwd(), 'agents', agentId, 'system.md');
@@ -4000,23 +4430,22 @@ async function runJobNow(jobId) {
     }
   }
 
-  runningJobIds.add(Number(jobId));
-  getTrackerOverview().then(overview => io.emit('tracker_update', overview));
-
   // Run asynchronously with lifecycle tracking
   (async () => {
     try {
-      await targetAgent.processMessage(`[SCHEDULED JOB MANUAL TRIGGER] ${job.task}`, mockSocket);
+      await targetAgent.processMessage(`[SCHEDULED JOB MANUAL TRIGGER: ${job.name || jobId}] ${job.task}`, mockSocket, process.env.DEFAULT_LLM_PROVIDER || 'ollama_cloud', [], sessionId);
     } catch (err) {
       console.error(`Error running job ${jobId}:`, err);
     } finally {
       runningJobIds.delete(Number(jobId));
+      runningJobSessions.delete(Number(jobId));
+      getAllSessions().then(s => io.emit('sessions_list', s));
       const overview = await getTrackerOverview();
       io.emit('tracker_update', overview);
     }
   })();
 
-  return { status: 'Job execution started', jobId, isRunning: true };
+  return { status: 'Job execution started', jobId, sessionId, isRunning: true };
 }
 
 async function getTrackerOverview() {
@@ -4058,7 +4487,8 @@ async function getTrackerOverview() {
     const rawJobs = await db.all('SELECT * FROM scheduled_jobs ORDER BY id DESC');
     jobs = rawJobs.map(j => ({
       ...j,
-      isRunning: runningJobIds.has(Number(j.id))
+      isRunning: runningJobIds.has(Number(j.id)),
+      activeSessionId: runningJobSessions.get(Number(j.id)) || null
     }));
   } catch (e) {
     console.error('Error fetching scheduled_jobs:', e);
@@ -4249,10 +4679,11 @@ async function systemReset(socket, sessionId = 'session_default') {
   }
   await new Promise(r => setTimeout(r, 500));
 
-  // 3. Reset activeAgents map (keep only orchestrator)
+  // 3. Reset activeAgents map and reload all available disk agents
   if (socket) sendLog(socket, 'orchestrator', 'system', 'Re-initializing agent registry...');
   activeAgents.clear();
-  activeAgents.set('orchestrator', { id: 'orchestrator', name: 'Orchestrator', role: 'Main Controller', status: 'idle' });
+  availableAgents.clear();
+  await loadAvailableAgents();
 
   // 4. Reset agentInstances map (keep only orchestrator)
   const orchestratorInstance = agentInstances.get('orchestrator');
@@ -4491,6 +4922,7 @@ async function compressSession(socket, targetAgentId = 'orchestrator') {
 
 async function loadActiveAgents() {
   try {
+    await loadAvailableAgents();
     const db = await dbPromise;
     await db.run("UPDATE active_agents SET status = 'idle'");
     const rows = await db.all('SELECT * FROM active_agents');
@@ -4527,12 +4959,6 @@ io.on('connection', (socket) => {
 
   sendKeyStatus();
   
-  // Send existing history for orchestrator
-  socket.emit('chat_history', { 
-    agentId: 'orchestrator', 
-    history: orchestrator.history 
-  });
-
   // Restore logs
   sendLogHistory(socket);
 
@@ -4589,6 +5015,10 @@ io.on('connection', (socket) => {
 
   socket.on('delete_session', async ({ sessionId }) => {
     await deleteSession(sessionId);
+    try {
+      const { EgoAdapter } = await import('./skills/utils/ego_adapter.js');
+      await EgoAdapter.close(EgoAdapter.getSpaceName(sessionId));
+    } catch (e) {}
     const allSessions = await getAllSessions();
     io.emit('sessions_list', allSessions);
   });
@@ -5867,10 +6297,11 @@ app.post('/api/llm/test-provider', async (req, res) => {
       const doModel = model || (targetProvider.startsWith('do:') ? targetProvider.substring(3) : undefined);
       const text = await createChatCompletion([{ role: 'user', content: 'Say "Ready" in one word.' }], { model: doModel });
       return res.json({ success: true, latency: Date.now() - startTime, model: doModel || 'default', reply: text.trim().slice(0, 100) });
-    } else if (targetProvider === 'gemini' || targetProvider === 'gemini_api' || targetProvider.startsWith('gemini:') || targetProvider.startsWith('gemini_api:')) {
-      const gemModel = targetProvider.startsWith('gemini:')
-        ? targetProvider.substring(7)
-        : (targetProvider.startsWith('gemini_api:') ? targetProvider.substring(11) : (model || 'gemini-3.7-flash'));
+    } else if (targetProvider === 'gemini' || targetProvider === 'gemini_api' || targetProvider.startsWith('gemini:') || targetProvider.startsWith('gemini_api:') || targetProvider.startsWith('vertex:') || targetProvider === 'vertex') {
+      let gemModel = (targetProvider.startsWith('gemini:') || targetProvider.startsWith('vertex:'))
+        ? targetProvider.substring(targetProvider.indexOf(':') + 1)
+        : (targetProvider.startsWith('gemini_api:') ? targetProvider.substring(11) : (model || 'gemini-3.8-flash'));
+      if (gemModel === 'gemini-3.8') gemModel = 'gemini-3.8-flash';
 
       if (hasGeminiKey()) {
         const testRes = await testGeminiInference(gemModel);
@@ -5882,10 +6313,10 @@ app.post('/api/llm/test-provider', async (req, res) => {
           note: 'Inference verified via Google AI Studio API (GEMINI_API_KEY)'
         });
       } else {
-        const genAIModel = vertexAI.preview.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+        const genAIModel = vertexAI.preview.getGenerativeModel({ model: gemModel || 'gemini-3.8-flash' });
         const result = await genAIModel.generateContent('Say "Ready" in one word.');
         const text = result.response.candidates?.[0]?.content?.parts?.[0]?.text || 'Connected';
-        return res.json({ success: true, latency: Date.now() - startTime, model: 'gemini-2.5-flash-lite (Vertex)', reply: text.trim().slice(0, 100) });
+        return res.json({ success: true, latency: Date.now() - startTime, model: `${gemModel || 'gemini-3.8-flash'} (Vertex)`, reply: text.trim().slice(0, 100) });
       }
     } else {
       return res.json({ success: true, latency: Date.now() - startTime, provider: targetProvider, reply: 'Provider OK' });
@@ -5895,8 +6326,279 @@ app.post('/api/llm/test-provider', async (req, res) => {
   }
 });
 
+// ==========================================
+// BOOKMARKS SERVICE (Markdown Storage & Retrieval)
+// ==========================================
+const BOOKMARKS_DIR = path.join(process.cwd(), 'bookmarks');
+if (!fs.existsSync(BOOKMARKS_DIR)) {
+  try {
+    fs.mkdirSync(BOOKMARKS_DIR, { recursive: true });
+  } catch (err) {
+    console.error('Failed to create bookmarks directory:', err);
+  }
+}
+
+function parseBookmarkFile(filePath, filename) {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const stat = fs.statSync(filePath);
+
+    let metadata = {
+      filename,
+      messageId: '',
+      title: filename.replace(/\.md$/, ''),
+      role: 'assistant',
+      agentId: 'orchestrator',
+      sessionId: '',
+      model: '',
+      createdAt: stat.birthtime ? stat.birthtime.toISOString() : stat.mtime.toISOString(),
+      size: stat.size,
+    };
+    let body = content;
+
+    if (content.startsWith('---')) {
+      const endIdx = content.indexOf('\n---', 3);
+      if (endIdx !== -1) {
+        const frontmatterStr = content.slice(3, endIdx).trim();
+        body = content.slice(endIdx + 4).trim();
+
+        frontmatterStr.split('\n').forEach(line => {
+          const colonIdx = line.indexOf(':');
+          if (colonIdx > 0) {
+            const key = line.slice(0, colonIdx).trim();
+            let val = line.slice(colonIdx + 1).trim();
+            if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+              val = val.slice(1, -1);
+            }
+            if (key === 'id' || key === 'messageId') metadata.messageId = val;
+            else if (key === 'title') metadata.title = val;
+            else if (key === 'role') metadata.role = val;
+            else if (key === 'agentId' || key === 'agent') metadata.agentId = val;
+            else if (key === 'sessionId' || key === 'session_id') metadata.sessionId = val;
+            else if (key === 'model') metadata.model = val;
+            else if (key === 'date' || key === 'createdAt') metadata.createdAt = val;
+          }
+        });
+      }
+    }
+
+    if (!metadata.title || metadata.title === filename.replace(/\.md$/, '')) {
+      const firstLine = body.split('\n').find(l => l.trim().length > 0) || '';
+      const cleanTitle = firstLine.replace(/^#+\s*/, '').slice(0, 60).trim();
+      if (cleanTitle) metadata.title = cleanTitle;
+    }
+
+    const cleanSnippet = body
+      .replace(/^#+\s+/gm, '')
+      .replace(/[*_`~[\]]/g, '')
+      .replace(/\n+/g, ' ')
+      .trim();
+    const preview = cleanSnippet.slice(0, 180) + (cleanSnippet.length > 180 ? '...' : '');
+
+    return {
+      ...metadata,
+      preview,
+      content: body,
+      rawContent: content,
+      filePath: `bookmarks/${filename}`
+    };
+  } catch (err) {
+    console.error(`Error parsing bookmark ${filename}:`, err);
+    return null;
+  }
+}
+
+function getAllBookmarks() {
+  if (!fs.existsSync(BOOKMARKS_DIR)) return { bookmarks: [], bookmarkedMessageIds: [], count: 0 };
+  const files = fs.readdirSync(BOOKMARKS_DIR).filter(f => f.endsWith('.md'));
+  const bookmarks = [];
+  const bookmarkedMessageIds = [];
+
+  for (const file of files) {
+    const filePath = path.join(BOOKMARKS_DIR, file);
+    const item = parseBookmarkFile(filePath, file);
+    if (item) {
+      bookmarks.push(item);
+      if (item.messageId) {
+        bookmarkedMessageIds.push(item.messageId);
+      }
+    }
+  }
+
+  bookmarks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return { bookmarks, bookmarkedMessageIds, count: bookmarks.length };
+}
+
+app.get('/api/bookmarks', (req, res) => {
+  try {
+    const data = getAllBookmarks();
+    res.json({ success: true, ...data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/bookmarks', async (req, res) => {
+  try {
+    let { messageId, content, role, agentId, sessionId, model, title, date } = req.body || {};
+    const safeId = messageId || `msg_${Date.now()}`;
+    const nowIso = date || new Date().toISOString();
+    let displayRole = role || 'assistant';
+    let displayAgent = agentId || 'orchestrator';
+
+    // If content wasn't sent but messageId exists, attempt SQLite lookup
+    if (!content && messageId) {
+      const db = await dbPromise;
+      if (db) {
+        const row = await db.get('SELECT * FROM chat_messages WHERE id = ?', [messageId]);
+        if (row) {
+          content = row.content;
+          displayRole = row.role || displayRole;
+          displayAgent = row.agent_id || displayAgent;
+          sessionId = sessionId || row.session_id;
+        }
+      }
+    }
+
+    if (!content || typeof content !== 'string') {
+      return res.status(400).json({ success: false, error: 'Message content is required to bookmark' });
+    }
+
+    let derivedTitle = title;
+    if (!derivedTitle || !derivedTitle.trim()) {
+      const firstLine = content.split('\n').find(l => l.trim().length > 0) || 'Saved Note';
+      derivedTitle = firstLine.replace(/^#+\s*/, '').slice(0, 60).trim();
+    }
+
+    // Check if a bookmark for this messageId already exists to avoid duplicates
+    const all = getAllBookmarks();
+    const existing = all.bookmarks.find(b => b.messageId === safeId);
+    let targetFilename = existing?.filename;
+
+    if (!targetFilename) {
+      const datePart = nowIso.slice(0, 10);
+      const slugPart = derivedTitle
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 25) || 'note';
+      const shortId = safeId.replace(/[^a-z0-9]/gi, '').slice(-6) || Math.random().toString(36).slice(2, 6);
+      targetFilename = `bookmark_${datePart}_${slugPart}_${shortId}.md`;
+    }
+
+    const trimmedContent = content.trim();
+    const hasHeader = trimmedContent.startsWith('#');
+
+    const frontmatterLines = [
+      '---',
+      `id: "${safeId}"`,
+      `title: "${derivedTitle.replace(/"/g, '\\"')}"`,
+      `date: "${nowIso}"`,
+      `role: "${displayRole}"`,
+      `agent: "${displayAgent}"`,
+      sessionId ? `sessionId: "${sessionId}"` : null,
+      model ? `model: "${model}"` : null,
+      'tags: ["bookmark", "saved"]',
+      '---',
+      '',
+      hasHeader ? null : `# ${derivedTitle}`,
+      hasHeader ? null : '',
+      trimmedContent,
+      ''
+    ].filter(l => l !== null);
+
+    const fullMarkdown = frontmatterLines.join('\n');
+    const targetPath = path.join(BOOKMARKS_DIR, targetFilename);
+    fs.writeFileSync(targetPath, fullMarkdown, 'utf8');
+
+    const createdItem = parseBookmarkFile(targetPath, targetFilename);
+    if (typeof io !== 'undefined' && io) {
+      io.emit('bookmarks_updated', { action: 'saved', messageId: safeId, filename: targetFilename });
+    }
+
+    res.json({
+      success: true,
+      filename: targetFilename,
+      bookmark: createdItem,
+      message: 'Bookmark saved successfully'
+    });
+  } catch (err) {
+    console.error('Failed to save bookmark:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/bookmarks/:filename', (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename);
+    const targetPath = path.join(BOOKMARKS_DIR, filename);
+    if (fs.existsSync(targetPath)) {
+      const item = parseBookmarkFile(targetPath, filename);
+      fs.unlinkSync(targetPath);
+      if (typeof io !== 'undefined' && io) {
+        io.emit('bookmarks_updated', { action: 'deleted', filename, messageId: item?.messageId });
+      }
+      return res.json({ success: true, deleted: filename });
+    } else {
+      return res.status(404).json({ success: false, error: 'Bookmark not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/bookmarks/message/:messageId', (req, res) => {
+  try {
+    const targetMsgId = req.params.messageId;
+    const all = getAllBookmarks();
+    const found = all.bookmarks.find(b => b.messageId === targetMsgId);
+    if (found) {
+      const targetPath = path.join(BOOKMARKS_DIR, found.filename);
+      if (fs.existsSync(targetPath)) {
+        fs.unlinkSync(targetPath);
+        if (typeof io !== 'undefined' && io) {
+          io.emit('bookmarks_updated', { action: 'deleted', filename: found.filename, messageId: targetMsgId });
+        }
+        return res.json({ success: true, deleted: found.filename, messageId: targetMsgId });
+      }
+    }
+    return res.status(404).json({ success: false, error: 'Bookmark for message not found' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/bookmarks/download/:filename', (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename);
+    const targetPath = path.join(BOOKMARKS_DIR, filename);
+    if (fs.existsSync(targetPath)) {
+      res.download(targetPath, filename);
+    } else {
+      res.status(404).json({ success: false, error: 'File not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/bookmarks/:filename', (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename);
+    const targetPath = path.join(BOOKMARKS_DIR, filename);
+    if (fs.existsSync(targetPath)) {
+      const item = parseBookmarkFile(targetPath, filename);
+      res.json({ success: true, bookmark: item });
+    } else {
+      res.status(404).json({ success: false, error: 'Bookmark not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/files', (req, res) => {
-  const dirs = ['memory', 'tasks', 'knowledge', 'skills', 'agents'];
+  const dirs = ['memory', 'tasks', 'knowledge', 'skills', 'agents', 'bookmarks'];
   const results = {};
   
   dirs.forEach(dir => {
@@ -6178,7 +6880,11 @@ app.get('/api/jobs', async (req, res) => {
   try {
     const db = await dbPromise;
     const jobs = await db.all('SELECT * FROM scheduled_jobs ORDER BY id DESC');
-    res.json(jobs.map(j => ({ ...j, isRunning: runningJobIds.has(Number(j.id)) })));
+    res.json(jobs.map(j => ({
+      ...j,
+      isRunning: runningJobIds.has(Number(j.id)),
+      activeSessionId: runningJobSessions.get(Number(j.id)) || null
+    })));
   } catch (e) {
     res.status(500).json({ error: 'Failed to fetch jobs' });
   }

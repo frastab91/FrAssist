@@ -22,11 +22,14 @@ export async function execute(args) {
 
   try {
     if (useEgo) {
+      if (args.sessionId) {
+        EgoAdapter.setSessionContext(args.sessionId);
+      }
       if (action === 'init') {
         return { result: 'success', message: 'Ego Lite session ready.' };
       }
       if (action === 'close') {
-        const res = await EgoAdapter.close();
+        const res = await EgoAdapter.close(EgoAdapter.getSpaceName(args.sessionId));
         return { result: 'success', message: res || 'Ego Lite session closed and task space completed.' };
       }
       if (action === 'smart_capture') {

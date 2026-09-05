@@ -9,6 +9,7 @@ type TaskExecutionCardProps = {
   steps?: TaskActivityStep[];
   handleStop: () => void;
   onOpenLogs?: () => void;
+  activeTool?: string;
 };
 
 export function TaskExecutionCard({
@@ -17,6 +18,7 @@ export function TaskExecutionCard({
   logs,
   steps = [],
   handleStop,
+  activeTool,
 }: TaskExecutionCardProps) {
   const [seconds, setSeconds] = useState(0);
   const [showTelemetry, setShowTelemetry] = useState(false);
@@ -33,11 +35,12 @@ export function TaskExecutionCard({
   const lastLog = agentLogs.slice(-1)[0];
   const recentLogs = agentLogs.slice(-4);
 
-  // Status text resolution
-  const activeMessage = agent.currentTask || currentStatus || 'Analyzing & executing task...';
+  // Status text resolution: Prioritize session-scoped currentStatus over global agent.currentTask
+  const activeMessage = currentStatus || agent.currentTask || 'Analyzing & executing task...';
+  const effectiveTool = activeTool || agent.activeTool;
 
   // Determine stage type for visual theming
-  const isTool = activeMessage.toLowerCase().includes('executing') || activeMessage.toLowerCase().includes('running') || !!agent.activeTool;
+  const isTool = activeMessage.toLowerCase().includes('executing') || activeMessage.toLowerCase().includes('running') || !!effectiveTool;
   const isRouter = activeMessage.toLowerCase().includes('router') || activeMessage.toLowerCase().includes('digitalocean') || activeMessage.toLowerCase().includes('vertex') || activeMessage.toLowerCase().includes('ollama');
   const isSubagent = activeMessage.toLowerCase().includes('sub-agent') || activeMessage.toLowerCase().includes('spawning') || activeMessage.toLowerCase().includes('delegating');
   const isSynthesizing = activeMessage.toLowerCase().includes('synthesizing') || activeMessage.toLowerCase().includes('composing');
@@ -138,7 +141,7 @@ export function TaskExecutionCard({
 
             {showAllSteps && (
               <div className="task-steps-list">
-                {steps.map((step, idx) => (
+                {steps.slice(-20).map((step, idx) => (
                   <div key={step.id || idx} className={`task-step-item ${step.status}`}>
                     <div className="step-indicator">
                       {step.status === 'completed' ? (
@@ -159,7 +162,9 @@ export function TaskExecutionCard({
                         ) : null}
                       </div>
                       {step.detail && (
-                        <div className="step-subdetail">{step.detail}</div>
+                        <div className="step-subdetail">
+                          {step.detail.length > 300 ? step.detail.slice(0, 300) + '...' : step.detail}
+                        </div>
                       )}
                     </div>
                   </div>

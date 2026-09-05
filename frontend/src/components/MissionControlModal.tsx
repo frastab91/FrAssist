@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { 
   X, 
@@ -18,7 +18,9 @@ import {
   ChevronDown,
   Calendar,
   Eye,
-  Loader2
+  Loader2,
+  MessageSquare,
+  Search
 } from 'lucide-react';
 import type { TrackerOverview } from '../types';
 import { Socket } from 'socket.io-client';
@@ -31,6 +33,7 @@ type MissionControlModalProps = {
   onRefresh: () => void;
   socket: Socket | null;
   onInspectAgent?: (agentId: string) => void;
+  onSelectSession?: (sessionId: string) => void;
 };
 
 export function MissionControlModal({
@@ -40,6 +43,7 @@ export function MissionControlModal({
   onRefresh,
   socket,
   onInspectAgent,
+  onSelectSession,
 }: MissionControlModalProps) {
   const [activeTab, setActiveTab] = useState<'agents' | 'approvals' | 'crons'>('agents');
   
@@ -73,13 +77,22 @@ export function MissionControlModal({
   } | null>(null);
   const [isUpdatingJob, setIsUpdatingJob] = useState(false);
 
+  // Search & filter state for crons
+  const [cronSearchQuery, setCronSearchQuery] = useState('');
+  const [cronStatusFilter, setCronStatusFilter] = useState<'all' | 'active' | 'paused'>('all');
+
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionSessionId, setActionSessionId] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const showNotification = (msg: string) => {
+  const showNotification = (msg: string, sessionId?: string | null) => {
     setActionMessage(msg);
-    setTimeout(() => setActionMessage(null), 5000);
+    setActionSessionId(sessionId || null);
+    setTimeout(() => {
+      setActionMessage(null);
+      setActionSessionId(null);
+    }, 7000);
   };
 
   const handleApprovalAction = async (id: number, action: 'approve' | 'reject' | 'edit') => {
@@ -124,10 +137,15 @@ export function MissionControlModal({
 
   const handleTriggerJob = async (job: { id: number; name?: string; agentId?: string }) => {
     setTriggeringJobIds(prev => new Set(prev).add(job.id));
-    showNotification(`🚀 Triggered "${job.name || `Job #${job.id}`}"! Agent '${job.agentId || 'orchestrator'}' is running this in background.`);
+    showNotification(`🚀 Initializing "${job.name || `Job #${job.id}`}"...`);
     try {
       const res = await fetch(`/api/jobs/${job.id}/run-now`, { method: 'POST' });
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showNotification(
+          `🚀 Running "${job.name || `Job #${job.id}`}"! Dedicated chat session active.`,
+          data.sessionId || null
+        );
         onRefresh();
       } else {
         const data = await res.json().catch(() => ({}));
@@ -254,6 +272,35 @@ export function MissionControlModal({
   const workingAgentsCount = (trackerData.agents || []).filter(a => a.status === 'working' || a.status === 'waiting_approval').length;
   const pendingApprovalsCount = (trackerData.pendingApprovals || []).filter(a => a.status === 'pending').length;
 
+  const allJobs = trackerData.jobs || [];
+
+  const filteredJobs = useMemo(() => {
+    return allJobs.filter(job => {
+      if (cronStatusFilter !== 'all' && job.status !== cronStatusFilter) {
+        return false;
+      }
+      if (!cronSearchQuery.trim()) return true;
+      const q = cronSearchQuery.toLowerCase().trim();
+
+      const nameMatch = (job.name || '').toLowerCase().includes(q);
+      const taskMatch = (job.task || '').toLowerCase().includes(q);
+      const agentMatch = (job.agentId || '').toLowerCase().includes(q);
+      const cronMatch = (job.cron || '').toLowerCase().includes(q);
+      const descMatch = formatCronDescription(job.cron).toLowerCase().includes(q);
+      const statusMatch = (job.status || '').toLowerCase().includes(q);
+
+      return nameMatch || taskMatch || agentMatch || cronMatch || descMatch || statusMatch;
+    });
+  }, [allJobs, cronSearchQuery, cronStatusFilter]);
+
+  const activeJobsCount = useMemo(() => {
+    return allJobs.filter(j => j.status === 'active').length;
+  }, [allJobs]);
+
+  const pausedJobsCount = useMemo(() => {
+    return allJobs.filter(j => j.status === 'paused').length;
+  }, [allJobs]);
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div 
@@ -378,22 +425,54 @@ export function MissionControlModal({
               <CheckCircle2 size={16} color="#2563eb" style={{ flexShrink: 0 }} />
               <span>{actionMessage}</span>
             </div>
-            <button
-              type="button"
-              onClick={() => setActionMessage(null)}
-              style={{
-                border: 'none',
-                background: 'transparent',
-                color: '#64748b',
-                cursor: 'pointer',
-                padding: '2px',
-                display: 'flex',
-                alignItems: 'center'
-              }}
-              title="Dismiss notification"
-            >
-              <X size={14} />
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              {actionSessionId && onSelectSession && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectSession(actionSessionId);
+                    onClose();
+                  }}
+                  style={{
+                    padding: '3px 9px',
+                    borderRadius: '5px',
+                    border: 'none',
+                    background: '#2563eb',
+                    color: '#ffffff',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    boxShadow: '0 1px 3px rgba(37,99,235,0.25)'
+                  }}
+                  title="Open dedicated chat session to interact live"
+                >
+                  <MessageSquare size={12} />
+                  Open Live Chat Session
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setActionMessage(null);
+                  setActionSessionId(null);
+                }}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: '#64748b',
+                  cursor: 'pointer',
+                  padding: '2px',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+                title="Dismiss notification"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
         )}
 
@@ -925,29 +1004,181 @@ export function MissionControlModal({
           {/* TAB 3: CRONS & SCHEDULERS */}
           {activeTab === 'crons' && (
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '0.85rem',
+                flexWrap: 'wrap',
+                gap: '0.75rem'
+              }}>
                 <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
                   Manage recurring agent routines and background jobs
                 </span>
                 <button
                   onClick={() => setShowNewJobModal(true)}
                   style={{
-                    padding: '0.45rem 0.85rem',
+                    padding: '0.45rem 0.9rem',
                     borderRadius: '8px',
                     border: 'none',
-                    background: '#2563eb',
+                    background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
                     color: '#ffffff',
                     fontSize: '0.8rem',
                     fontWeight: 600,
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '0.35rem'
+                    gap: '0.35rem',
+                    boxShadow: '0 2px 6px rgba(37, 99, 235, 0.25)',
+                    transition: 'all 0.15s ease'
                   }}
                 >
                   <Plus size={15} />
                   New Cron Job
                 </button>
+              </div>
+
+              {/* Search & Filter Bar */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '0.75rem',
+                marginBottom: '1rem',
+                flexWrap: 'wrap',
+                background: '#ffffff',
+                padding: '0.65rem 0.85rem',
+                borderRadius: '10px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)'
+              }}>
+                {/* Search Input */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  background: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '8px',
+                  padding: '0.42rem 0.75rem',
+                  flex: '1 1 300px',
+                  minWidth: '220px'
+                }}>
+                  <Search size={15} color="#64748b" style={{ flexShrink: 0 }} />
+                  <input
+                    type="text"
+                    placeholder="Search crons by name, task, agent, or schedule..."
+                    value={cronSearchQuery}
+                    onChange={(e) => setCronSearchQuery(e.target.value)}
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      outline: 'none',
+                      fontSize: '0.82rem',
+                      width: '100%',
+                      color: '#0f172a'
+                    }}
+                  />
+                  {cronSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setCronSearchQuery('')}
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        cursor: 'pointer',
+                        color: '#94a3b8',
+                        padding: '2px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        borderRadius: '4px'
+                      }}
+                      title="Clear search"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Filter Pills and Showing Count */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <div style={{
+                    display: 'flex',
+                    background: '#f1f5f9',
+                    borderRadius: '8px',
+                    padding: '2px',
+                    border: '1px solid #e2e8f0'
+                  }}>
+                    <button
+                      type="button"
+                      onClick={() => setCronStatusFilter('all')}
+                      style={{
+                        padding: '0.3rem 0.65rem',
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: cronStatusFilter === 'all' ? '#ffffff' : 'transparent',
+                        color: cronStatusFilter === 'all' ? '#0f172a' : '#64748b',
+                        fontWeight: cronStatusFilter === 'all' ? 600 : 500,
+                        fontSize: '0.75rem',
+                        cursor: 'pointer',
+                        boxShadow: cronStatusFilter === 'all' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      All ({allJobs.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCronStatusFilter('active')}
+                      style={{
+                        padding: '0.3rem 0.65rem',
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: cronStatusFilter === 'active' ? '#ffffff' : 'transparent',
+                        color: cronStatusFilter === 'active' ? '#15803d' : '#64748b',
+                        fontWeight: cronStatusFilter === 'active' ? 600 : 500,
+                        fontSize: '0.75rem',
+                        cursor: 'pointer',
+                        boxShadow: cronStatusFilter === 'active' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      Active ({activeJobsCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCronStatusFilter('paused')}
+                      style={{
+                        padding: '0.3rem 0.65rem',
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: cronStatusFilter === 'paused' ? '#ffffff' : 'transparent',
+                        color: cronStatusFilter === 'paused' ? '#b45309' : '#64748b',
+                        fontWeight: cronStatusFilter === 'paused' ? 600 : 500,
+                        fontSize: '0.75rem',
+                        cursor: 'pointer',
+                        boxShadow: cronStatusFilter === 'paused' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      Paused ({pausedJobsCount})
+                    </button>
+                  </div>
+
+                  {(cronSearchQuery || cronStatusFilter !== 'all') && (
+                    <span style={{
+                      fontSize: '0.75rem',
+                      color: '#64748b',
+                      whiteSpace: 'nowrap',
+                      background: '#f8fafc',
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0'
+                    }}>
+                      Showing <strong>{filteredJobs.length}</strong> of {allJobs.length}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Inline Form to Add New Cron Job */}
@@ -1060,7 +1291,7 @@ export function MissionControlModal({
               )}
 
               {/* Jobs List */}
-              {(trackerData.jobs || []).length === 0 ? (
+              {allJobs.length === 0 ? (
                 <div style={{
                   padding: '3rem 1rem',
                   textAlign: 'center',
@@ -1074,9 +1305,44 @@ export function MissionControlModal({
                     Click "+ New Cron Job" to schedule background tasks for your agents.
                   </p>
                 </div>
+              ) : filteredJobs.length === 0 ? (
+                <div style={{
+                  padding: '3rem 1.5rem',
+                  textAlign: 'center',
+                  background: '#ffffff',
+                  borderRadius: '12px',
+                  border: '1.5px dashed #cbd5e1'
+                }}>
+                  <Search size={36} color="#94a3b8" style={{ margin: '0 auto 0.75rem auto', display: 'block' }} />
+                  <h3 style={{ margin: 0, fontSize: '1rem', color: '#0f172a', fontWeight: 600 }}>No Matching Crons Found</h3>
+                  <p style={{ margin: '0.35rem 0 1rem 0', fontSize: '0.82rem', color: '#64748b' }}>
+                    {cronSearchQuery
+                      ? <>No cron jobs match &ldquo;<strong>{cronSearchQuery}</strong>&rdquo;{cronStatusFilter !== 'all' ? ` with status &ldquo;${cronStatusFilter}&rdquo;` : ''}.</>
+                      : <>No {cronStatusFilter} cron jobs found.</>}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCronSearchQuery('');
+                      setCronStatusFilter('all');
+                    }}
+                    style={{
+                      padding: '0.4rem 0.85rem',
+                      borderRadius: '6px',
+                      border: '1px solid #cbd5e1',
+                      background: '#f8fafc',
+                      color: '#334155',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Reset Search & Filters
+                  </button>
+                </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-                  {(trackerData.jobs || []).map(job => {
+                  {filteredJobs.map(job => {
                     const isActive = job.status === 'active';
                     const isEditingThisJob = editingJob && editingJob.id === job.id;
 
@@ -1424,48 +1690,79 @@ export function MissionControlModal({
 
                         {isJobRunning && (
                           <div style={{
-                            padding: '0.45rem 0.75rem',
-                            borderRadius: '6px',
+                            padding: '0.5rem 0.85rem',
+                            borderRadius: '8px',
                             background: '#eff6ff',
                             border: '1px solid #bfdbfe',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
-                            gap: '0.5rem',
+                            flexWrap: 'wrap',
+                            gap: '0.6rem',
                             fontSize: '0.78rem',
                             color: '#1e40af'
                           }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', minWidth: '220px' }}>
                               <Loader2 size={13} className="stage-icon icon-spin" style={{ color: '#2563eb', flexShrink: 0 }} />
-                              <span>Task is executing right now with agent <strong>{job.agentId || 'orchestrator'}</strong> in the background.</span>
+                              <span>Executing now with agent <strong>{job.agentId || 'orchestrator'}</strong>.</span>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (onInspectAgent) {
-                                  onInspectAgent(job.agentId || 'orchestrator');
-                                } else {
-                                  setActiveTab('agents');
-                                }
-                              }}
-                              style={{
-                                padding: '3px 8px',
-                                borderRadius: '4px',
-                                border: '1px solid #93c5fd',
-                                background: '#ffffff',
-                                color: '#1d4ed8',
-                                fontSize: '0.72rem',
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                                whiteSpace: 'nowrap',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '3px'
-                              }}
-                            >
-                              <Eye size={12} />
-                              Inspect Live Agent Activity
-                            </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                              {job.activeSessionId && onSelectSession && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    onSelectSession(job.activeSessionId!);
+                                    onClose();
+                                  }}
+                                  style={{
+                                    padding: '4px 10px',
+                                    borderRadius: '5px',
+                                    border: 'none',
+                                    background: '#2563eb',
+                                    color: '#ffffff',
+                                    fontSize: '0.73rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    whiteSpace: 'nowrap',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    boxShadow: '0 1px 3px rgba(37,99,235,0.25)'
+                                  }}
+                                  title="Open dedicated live chat session to view outputs & interact"
+                                >
+                                  <MessageSquare size={12} />
+                                  Open Live Chat
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (onInspectAgent) {
+                                    onInspectAgent(job.agentId || 'orchestrator');
+                                  } else {
+                                    setActiveTab('agents');
+                                  }
+                                }}
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: '5px',
+                                  border: '1px solid #93c5fd',
+                                  background: '#ffffff',
+                                  color: '#1d4ed8',
+                                  fontSize: '0.73rem',
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  whiteSpace: 'nowrap',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '3px'
+                                }}
+                              >
+                                <Eye size={12} />
+                                Inspect Agent
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>

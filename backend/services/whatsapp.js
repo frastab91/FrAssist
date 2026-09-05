@@ -556,8 +556,12 @@ CRITICAL RULES:
       ], { model: doModel, agentId: 'whatsapp_concierge' }))?.trim() || '';
     }
     // 3. Google Gemini execution (also fallback for deprecated perplexity)
-    else if (effectiveModel === 'gemini' || effectiveModel === 'perplexity' || effectiveModel.startsWith('gemini')) {
-      const gemModel = effectiveModel.startsWith('gemini:') ? effectiveModel.substring(7) : (effectiveModel === 'gemini-1.5-flash' ? 'gemini-3.5-flash-lite' : 'gemini-3.7-flash');
+    else if (effectiveModel === 'gemini' || effectiveModel === 'perplexity' || effectiveModel.startsWith('gemini') || effectiveModel.startsWith('vertex')) {
+      let gemModel = (effectiveModel.startsWith('gemini:') || effectiveModel.startsWith('vertex:'))
+        ? effectiveModel.substring(effectiveModel.indexOf(':') + 1)
+        : (effectiveModel === 'gemini-1.5-flash' ? 'gemini-3.5-flash-lite' : 'gemini-3.8-flash');
+      if (gemModel === 'gemini-3.8') gemModel = 'gemini-3.8-flash';
+
       if (hasGeminiKey()) {
         const gRes = await generateGeminiContent({
           contents: strictPrompt,
@@ -567,7 +571,7 @@ CRITICAL RULES:
         replyText = gRes.text?.trim() || '';
         recordTokenUsage('whatsapp_concierge', gRes.usage?.promptTokens || 0, gRes.usage?.candidatesTokens || 0, gRes.usage?.totalTokens || 0, gRes.model).catch(() => {});
       } else if (vertexAI) {
-        const model = vertexAI.preview.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        const model = vertexAI.preview.getGenerativeModel({ model: gemModel || 'gemini-3.8-flash' });
         const result = await model.generateContent({
           contents: [{ role: 'user', parts: [{ text: strictPrompt }] }],
           systemInstruction: {
@@ -583,33 +587,20 @@ CRITICAL RULES:
     // 4. Groq Fast Cloud LLM execution
     else if (effectiveModel.startsWith('groq') || effectiveModel.includes('gpt-oss') || effectiveModel.includes('qwen3.6')) {
       if (!process.env.GROQ_API_KEY) {
-        throw new Error('GROQ_API_KEY is not set in backend/.env');
+        throw new Error('GROQ_API_KEY is not configured in backend/.env');
       }
-      const groqModel = effectiveModel.startsWith('groq:') ? effectiveModel.substring(5) : (effectiveModel === 'groq' ? 'openai/gpt-oss-120b' : effectiveModel);
-      const gRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: groqModel,
-          messages: [{ role: 'user', content: strictPrompt }]
-        })
-      });
-      if (gRes.ok) {
-        const gData = await gRes.json();
-        replyText = gData.choices?.[0]?.message?.content?.trim() || '';
-        const gIn = gData.usage?.prompt_tokens || estimateTokens(strictPrompt);
-        const gOut = gData.usage?.completion_tokens || estimateTokens(replyText);
-        recordTokenUsage('whatsapp_concierge', gIn, gOut, gIn + gOut, groqModel).catch(() => {});
-      } else {
-        throw new Error(`Groq Error (${gRes.status}): ${await gRes.text()}`);
-      }
+      const groqModel = effectiveModel.includes(':') ? effectiveModel.split(':')[1] : 'openai/gpt-oss-120b';
+      replyText = (await createGroqChatCompletion([
+        { role: 'system', content: 'You are the digital concierge for Tra-Montiemare vacation rentals in Scalea hosted by Francesco & Enerlida.' },
+        { role: 'user', content: strictPrompt }
+      ], { model: groqModel, agentId: 'whatsapp_concierge' }))?.trim() || '';
     }
     // 5. Google Gemini (Cloud API Key or Vertex AI)
     else {
-      const geminiModelName = chosenModel === 'gemini-1.5-flash' ? 'gemini-3.5-flash-lite' : 'gemini-3.7-flash';
+      let geminiModelName = (chosenModel.startsWith('gemini:') || chosenModel.startsWith('vertex:'))
+        ? chosenModel.substring(chosenModel.indexOf(':') + 1)
+        : (chosenModel === 'gemini-1.5-flash' ? 'gemini-3.5-flash-lite' : 'gemini-3.8-flash');
+      if (geminiModelName === 'gemini-3.8') geminiModelName = 'gemini-3.8-flash';
 
       if (hasGeminiKey()) {
         const gRes = await generateGeminiContent({
@@ -619,7 +610,7 @@ CRITICAL RULES:
         replyText = gRes.text?.trim() || '';
         recordTokenUsage('whatsapp_concierge', gRes.usage?.promptTokens || 0, gRes.usage?.candidatesTokens || 0, gRes.usage?.totalTokens || 0, gRes.model).catch(() => {});
       } else if (vertexAI) {
-        const model = vertexAI.preview.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        const model = vertexAI.preview.getGenerativeModel({ model: geminiModelName || 'gemini-3.8-flash' });
         const result = await model.generateContent({
           contents: [{ role: 'user', parts: [{ text: strictPrompt }] }]
         });
@@ -627,7 +618,7 @@ CRITICAL RULES:
         const usageMeta = result.response.usageMetadata;
         const gIn = usageMeta?.promptTokenCount || estimateTokens(strictPrompt);
         const gOut = usageMeta?.candidatesTokenCount || estimateTokens(replyText);
-        recordTokenUsage('whatsapp_concierge', gIn, gOut, gIn + gOut, 'gemini-2.5-flash').catch(() => {});
+        recordTokenUsage('whatsapp_concierge', gIn, gOut, gIn + gOut, geminiModelName || 'gemini-3.8-flash').catch(() => {});
       }
     }
 

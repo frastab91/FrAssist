@@ -181,6 +181,30 @@ class AudioManager {
     return nextSpeed;
   }
 
+  public playUrl(rawSrc: string) {
+    if (!rawSrc) return;
+    const src = normalizeAudioUrl(rawSrc);
+    this.currentSrc = src;
+    this.audio.src = src;
+    this.audio.playbackRate = this.playbackRate;
+    this.audio.muted = this.isMuted;
+    this.audio.currentTime = 0;
+    this.currentTime = 0;
+    this.duration = 0;
+    this.updateSnapshotAndNotify();
+    this.audio.play().catch(e => console.error('[AudioManager] playUrl error:', e));
+  }
+
+  public stop() {
+    if (this.audio) {
+      this.audio.pause();
+      this.audio.currentTime = 0;
+      this.isPlaying = false;
+      this.currentTime = 0;
+      this.updateSnapshotAndNotify();
+    }
+  }
+
   public restart() {
     if (this.audio) {
       this.audio.currentTime = 0;

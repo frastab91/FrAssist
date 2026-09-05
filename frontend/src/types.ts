@@ -21,7 +21,7 @@ export type Message = {
 export type ChatSession = {
   id: string;
   title: string;
-  channel: 'web' | 'whatsapp' | 'telegram' | 'agent';
+  channel: 'web' | 'whatsapp' | 'telegram' | 'agent' | 'cron';
   targetAgent?: string;
   subagentsUsed: string[];
   createdAt: string;
@@ -109,6 +109,7 @@ export type CronJob = {
   lastRun?: string;
   timestamp?: string;
   isRunning?: boolean;
+  activeSessionId?: string | null;
 };
 
 export type TrackerOverview = {
@@ -231,6 +232,22 @@ export type WhatsAppScheduledMessage = {
   sentAt?: string;
   errorMessage?: string;
   messageId?: string;
+};
+
+export type BookmarkItem = {
+  filename: string;
+  messageId: string;
+  title: string;
+  role: 'user' | 'assistant';
+  agentId?: string;
+  sessionId?: string;
+  model?: string;
+  createdAt: string;
+  preview: string;
+  content: string;
+  rawContent?: string;
+  filePath: string;
+  size: number;
 };
 
 

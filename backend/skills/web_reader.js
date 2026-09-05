@@ -2,12 +2,12 @@ import { EgoAdapter } from './utils/ego_adapter.js';
 
 export const declaration = {
   name: 'web_reader',
-  description: 'Read the full text and content of any website, article, or documentation directly into clean Markdown. Highly effective for news (e.g. Financial Times, Bloomberg, Medium, Substack) and research, completely bypassing Cloudflare Turnstile, bot detection, and paywall hurdles.',
+  description: 'Read the full text and content of any website, article, or documentation directly into clean Markdown. Powered by live in-browser content distillation sharing your authenticated session, completely bypassing Cloudflare Turnstile, bot detection, navigation chrome, and paywall hurdles (e.g. Financial Times, Bloomberg, Substack, Medium, NYT). ALWAYS use this when asked to read, summarize, or analyze URLs.',
   parameters: {
     type: 'OBJECT',
     properties: {
       url: { type: 'STRING', description: 'The absolute URL of the web page or article to read.' },
-      maxLength: { type: 'NUMBER', description: 'Optional maximum character length to return (default: 20000).' }
+      maxLength: { type: 'NUMBER', description: 'Optional maximum character length to return (default: 25000).' }
     },
     required: ['url']
   }
@@ -49,14 +49,46 @@ function isBlockedOrError(text) {
 }
 
 export async function execute(args) {
-  let { url, maxLength = 20000 } = args;
+  let { url, maxLength = 25000 } = args;
   if (!url) return { error: 'A valid URL is required.' };
   
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     url = `https://${url}`;
   }
 
-  // 1. Try Jina Reader
+  // 1. Prioritize In-Browser Content Distillation (shares user logins, cookies, and handles live dynamic rendering)
+  if (EgoAdapter.isAvailable()) {
+    try {
+      if (args.sessionId) {
+        EgoAdapter.setSessionContext(args.sessionId);
+      }
+      const res = await EgoAdapter.distillPage(url, EgoAdapter.getSpaceName(args.sessionId));
+      if (res && res.text && !res.error && !isBlockedOrError(res.text) && res.text.trim().length > 250) {
+        let content = '';
+        if (res.title) content += `# ${res.title}\n\n`;
+        if (res.byline || res.publishDate) {
+          content += `*${[res.byline, res.publishDate].filter(Boolean).join(' | ')}*\n\n`;
+        }
+        content += res.text;
+
+        if (content.length > maxLength) {
+          content = content.slice(0, maxLength) + `\n\n[Content truncated to ${maxLength} characters...]`;
+        }
+        return {
+          source: 'ego_distillation',
+          url,
+          title: res.title,
+          byline: res.byline,
+          publishDate: res.publishDate,
+          content
+        };
+      }
+    } catch (egoErr) {
+      console.warn('[web_reader] Ego in-browser distillation error, falling back:', egoErr.message);
+    }
+  }
+
+  // 2. Fallback: Jina Reader
   try {
     const jinaUrl = `https://r.jina.ai/${url}`;
     const headers = {
@@ -92,7 +124,7 @@ export async function execute(args) {
     console.warn('[web_reader] Jina Reader error or blocked, attempting fallback:', err.message);
   }
 
-  // 2. Try Firecrawl API if configured
+  // 3. Fallback: Firecrawl API if configured
   if (process.env.FIRECRAWL_API_KEY) {
     try {
       const res = await fetch('https://api.firecrawl.dev/v1/scrape', {
@@ -127,37 +159,7 @@ export async function execute(args) {
     }
   }
 
-  // 3. Try Ego Browser (shares user profile/cookies and handles live rendering)
-  if (EgoAdapter.isAvailable()) {
-    try {
-      const urlJson = JSON.stringify(url);
-      const script = `
-        const task = await useOrCreateTaskSpace('Web Reader');
-        await openOrReuseTab(${urlJson}, { wait: true, timeout: 15 });
-        await wait(1.5);
-        ${EgoAdapter.getObstacleClearanceScript()}
-        const snap = await snapshotText();
-        await completeTaskSpace(task.name, { keep: false });
-        cliLog(snap);
-      `;
-      const snapText = await EgoAdapter.runScript(script);
-      if (snapText && !isBlockedOrError(snapText) && snapText.trim().length > 300) {
-        let content = snapText;
-        if (content.length > maxLength) {
-          content = content.slice(0, maxLength) + `\n\n[Content truncated...]`;
-        }
-        return {
-          source: 'ego_browser',
-          url,
-          content
-        };
-      }
-    } catch (egoErr) {
-      console.warn('[web_reader] Ego Browser extraction error:', egoErr.message);
-    }
-  }
-
-  // 4. Try Wayback Machine Archive
+  // 4. Fallback: Wayback Machine Archive
   try {
     const wbRes = await fetch(`https://archive.org/wayback/available?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(10000) });
     if (wbRes.ok) {
