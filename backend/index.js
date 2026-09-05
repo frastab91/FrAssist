@@ -5961,10 +5961,11 @@ function initTelegramBot(bot) {
     return ctx.reply('🤖 *FrAssist Telegram Assistant*:\n\n• Send any question, instruction, or task\n• Send voice notes to talk hands-free\n• Send photos with captions for visual understanding\n• Share location for local recommendations', { parse_mode: 'Markdown' });
   });
   
-  bot.on('photo', async (ctx) => {
+  bot.on('photo', (ctx) => {
     lastTelegramChatId = ctx.chat.id;
     const actionCtrl = startChatAction(ctx, 'typing');
-    try {
+    (async () => {
+      try {
       const photo = ctx.message.photo[ctx.message.photo.length - 1];
       const fileLink = await ctx.telegram.getFileLink(photo.file_id);
       const caption = ctx.message.caption || 'Look at this image';
@@ -5994,23 +5995,25 @@ function initTelegramBot(bot) {
         }
       };
       
-      await orchestrator.processMessage(caption, mockSocket, 'gemini', [dataUrl], telegramSessionId);
-    } catch (err) {
-      console.error('[Telegram photo error]:', err);
-      await ctx.reply(`❌ Failed to process photo: ${err.message}`).catch(() => {});
-    } finally {
-      actionCtrl.stop();
-    }
+        await orchestrator.processMessage(caption, mockSocket, 'gemini', [dataUrl], telegramSessionId);
+      } catch (err) {
+        console.error('[Telegram photo error]:', err);
+        await ctx.reply(`❌ Failed to process photo: ${err.message}`).catch(() => {});
+      } finally {
+        actionCtrl.stop();
+      }
+    })();
   });
 
-  bot.on('voice', async (ctx) => {
+  bot.on('voice', (ctx) => {
     lastTelegramChatId = ctx.chat.id;
     const actionCtrl = startChatAction(ctx, 'typing');
     const tempInOgg = path.join(process.cwd(), `tg_in_${Date.now()}.ogg`);
     const tempInWav = path.join(process.cwd(), `tg_in_${Date.now()}.wav`);
     const telegramSessionId = `telegram_${ctx.chat.id}`;
     
-    try {
+    (async () => {
+      try {
       const voice = ctx.message.voice;
       const fileLink = await ctx.telegram.getFileLink(voice.file_id);
       
@@ -6079,24 +6082,26 @@ function initTelegramBot(bot) {
       };
       
       const audioInput = `data:audio/wav;base64,${wavBase64}`;
-      await orchestrator.processMessage('Please listen to this voice message and respond.', mockSocket, 'gemini', [audioInput], telegramSessionId);
-    } catch (err) {
-      console.error('[Telegram voice error]:', err);
-      await ctx.reply(`❌ Failed to process voice: ${err.message}`).catch(() => {});
-    } finally {
-      if (fs.existsSync(tempInOgg)) fs.unlinkSync(tempInOgg);
-      if (fs.existsSync(tempInWav)) fs.unlinkSync(tempInWav);
-      actionCtrl.stop();
-    }
+        await orchestrator.processMessage('Please listen to this voice message and respond.', mockSocket, 'gemini', [audioInput], telegramSessionId);
+      } catch (err) {
+        console.error('[Telegram voice error]:', err);
+        await ctx.reply(`❌ Failed to process voice: ${err.message}`).catch(() => {});
+      } finally {
+        if (fs.existsSync(tempInOgg)) fs.unlinkSync(tempInOgg);
+        if (fs.existsSync(tempInWav)) fs.unlinkSync(tempInWav);
+        actionCtrl.stop();
+      }
+    })();
   });
 
-  bot.on('text', async (ctx) => {
+  bot.on('text', (ctx) => {
     lastTelegramChatId = ctx.chat.id;
     const text = ctx.message.text;
     const actionCtrl = startChatAction(ctx, 'typing');
     const telegramSessionId = `telegram_${ctx.chat.id}`;
     
-    try {
+    (async () => {
+      try {
       await getOrCreateSession(telegramSessionId, 'telegram', 'orchestrator', text);
       await recordMessageInSession(telegramSessionId, { role: 'user', content: text, agentId: 'orchestrator' });
 
@@ -6116,20 +6121,22 @@ function initTelegramBot(bot) {
         }
       };
 
-      await orchestrator.processMessage(text, mockSocket, process.env.DEFAULT_LLM_PROVIDER || 'ollama_cloud', [], telegramSessionId);
-    } catch (err) {
-      console.error('[Telegram text error]:', err);
-      await ctx.reply(`❌ Error: ${err.message}`).catch(() => {});
-    } finally {
-      actionCtrl.stop();
-    }
+        await orchestrator.processMessage(text, mockSocket, process.env.DEFAULT_LLM_PROVIDER || 'ollama_cloud', [], telegramSessionId);
+      } catch (err) {
+        console.error('[Telegram text error]:', err);
+        await ctx.reply(`❌ Error: ${err.message}`).catch(() => {});
+      } finally {
+        actionCtrl.stop();
+      }
+    })();
   });
 
-  bot.on('location', async (ctx) => {
+  bot.on('location', (ctx) => {
     lastTelegramChatId = ctx.chat.id;
     const actionCtrl = startChatAction(ctx, 'typing');
     const telegramSessionId = `telegram_${ctx.chat.id}`;
-    try {
+    (async () => {
+      try {
       const { latitude, longitude } = ctx.message.location;
 
       // Reverse-geocode with Nominatim (no API key required, respects attribution)
@@ -6174,13 +6181,14 @@ function initTelegramBot(bot) {
         }
       };
 
-      await orchestrator.processMessage(locationMessage, mockSocket, process.env.DEFAULT_LLM_PROVIDER || 'ollama_cloud', [], telegramSessionId);
-    } catch (err) {
-      console.error('[Telegram location error]:', err);
-      await ctx.reply(`❌ Error: ${err.message}`).catch(() => {});
-    } finally {
-      actionCtrl.stop();
-    }
+        await orchestrator.processMessage(locationMessage, mockSocket, process.env.DEFAULT_LLM_PROVIDER || 'ollama_cloud', [], telegramSessionId);
+      } catch (err) {
+        console.error('[Telegram location error]:', err);
+        await ctx.reply(`❌ Error: ${err.message}`).catch(() => {});
+      } finally {
+        actionCtrl.stop();
+      }
+    })();
   });
 
   bot.launch().then(() => {
