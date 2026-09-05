@@ -252,7 +252,7 @@ export async function execute(args = {}) {
           const { stdout } = await execFileAsync(
             agyBin,
             ['-p', prompt, '--dangerously-skip-permissions'],
-            { cwd: projectPath, timeout: 180000, maxBuffer: 5 * 1024 * 1024 }
+            { cwd: projectPath, maxBuffer: 5 * 1024 * 1024 }
           );
           promptOutput = stdout.trim();
         } catch (err) {
@@ -291,7 +291,7 @@ export async function execute(args = {}) {
         const { stdout, stderr } = await execFileAsync(
           agyBin,
           ['-p', prompt, '--dangerously-skip-permissions'],
-          { cwd: projectPath, timeout: 300000, maxBuffer: 10 * 1024 * 1024 }
+          { cwd: projectPath, maxBuffer: 10 * 1024 * 1024 }
         );
         const durationMs = Date.now() - startTime;
         return {
